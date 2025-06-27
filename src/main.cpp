@@ -49,7 +49,7 @@ struct Message
         ssize_t bytes_read = 0;
         while (bytes_read < payload_size)
         {
-            ssize_t r = recv(client_fd, buf.get() + bytes_read, payload_size - bytes_read, 0);
+            ssize_t r = recv(client_fd, buf.get() + bytes_read, payload_size - bytes_read, MSG_WAITALL);
             if (r <= 0)
                 throw std::runtime_error("invalid payload size");
             bytes_read += r;
@@ -248,27 +248,30 @@ int main(int argc, char *argv[])
     Socket s;
     s.bindToPort(9092);
     s.ListenForConnection();
-    s.AcceptConnection();
 
-    // Loop to handle multiple sequential requests on the same connection
     while (true)
     {
-        try
+        s.AcceptConnection();
+        // Loop to handle multiple sequential requests on the same connection
+        while (true)
         {
-            Message m = s.RecieveV0();
-            if (m.request_api_key == 18 && m.request_api_version >= 0 && m.request_api_version <= 4)
+            try
             {
-                s.RespondApiVersionsV4(m.correlation_id);
+                Message m = s.RecieveV0();
+                if (m.request_api_key == 18 && m.request_api_version >= 0 && m.request_api_version <= 4)
+                {
+                    s.RespondApiVersionsV4(m.correlation_id);
+                }
+                else
+                {
+                    s.RespondV0(m.correlation_id); // fallback
+                }
             }
-            else
+            catch (const std::exception &e)
             {
-                s.RespondV0(m.correlation_id); // fallback
+                // Probably client closed connection, so break loop and accept next
+                break;
             }
-        }
-        catch (const std::exception &e)
-        {
-            // Probably client closed connection, so break loop
-            break;
         }
     }
     return 0;
