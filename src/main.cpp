@@ -137,62 +137,71 @@ public:
         }
     }
 
+    // Helper: encode unsigned varint (Kafka zigzag base 128, but no negatives needed here)
+    void encode_unsigned_varint(std::vector<uint8_t> &buf, uint32_t val)
+    {
+        while (val > 127)
+        {
+            buf.push_back(static_cast<uint8_t>((val & 0x7F) | 0x80));
+            val >>= 7;
+        }
+        buf.push_back(static_cast<uint8_t>(val & 0x7F));
+    }
+
+    // Helper: encode compact string (length as unsigned varint, then bytes)
+    void encode_compact_string(std::vector<uint8_t> &buf, const std::string &str)
+    {
+        encode_unsigned_varint(buf, str.size() + 1);
+        buf.insert(buf.end(), str.begin(), str.end());
+    }
+
     int32_t RespondApiVersionsV4(int32_t correlation_id)
     {
-        // Build the response in a buffer
         std::vector<uint8_t> buf;
+        buf.resize(4); // reserve for length
 
-        // Reserve space for total size
-        buf.resize(4);
-
-        // CorrelationId
+        // CorrelationId (INT32)
         int32_t corr = htonl(correlation_id);
-        buf.insert(buf.end(), (uint8_t *)&corr, (uint8_t *)&corr + 4);
+        buf.insert(buf.end(), (uint8_t*)&corr, (uint8_t*)&corr + 4);
 
         // error_code (INT16)
         int16_t error_code = 0;
         int16_t net_error_code = htons(error_code);
-        buf.insert(buf.end(), (uint8_t *)&net_error_code, (uint8_t *)&net_error_code + 2);
+        buf.insert(buf.end(), (uint8_t*)&net_error_code, (uint8_t*)&net_error_code + 2);
 
-        // api_versions (ARRAY)
-        int32_t api_versions_count = htonl(1);
-        buf.insert(buf.end(), (uint8_t *)&api_versions_count, (uint8_t *)&api_versions_count + 4);
-
-        // For each api_version: api_key, min_version, max_version
-        int16_t api_key = htons(18);    // API_VERSIONS
-        int16_t min_version = htons(0); // earliest supported
-        int16_t max_version = htons(4); // v4
-        buf.insert(buf.end(), (uint8_t *)&api_key, (uint8_t *)&api_key + 2);
-        buf.insert(buf.end(), (uint8_t *)&min_version, (uint8_t *)&min_version + 2);
-        buf.insert(buf.end(), (uint8_t *)&max_version, (uint8_t *)&max_version + 2);
+        // api_versions (COMPACT ARRAY)
+        encode_unsigned_varint(buf, 1 + 1); // count=1, so encode 2
+        // One entry: api_key=18, min_version=0, max_version=4
+        int16_t api_key = htons(18);
+        int16_t min_version = htons(0);
+        int16_t max_version = htons(4);
+        buf.insert(buf.end(), (uint8_t*)&api_key, (uint8_t*)&api_key + 2);
+        buf.insert(buf.end(), (uint8_t*)&min_version, (uint8_t*)&min_version + 2);
+        buf.insert(buf.end(), (uint8_t*)&max_version, (uint8_t*)&max_version + 2);
 
         // throttle_time_ms (INT32)
         int32_t throttle_time_ms = 0;
         int32_t net_throttle = htonl(throttle_time_ms);
-        buf.insert(buf.end(), (uint8_t *)&net_throttle, (uint8_t *)&net_throttle + 4);
+        buf.insert(buf.end(), (uint8_t*)&net_throttle, (uint8_t*)&net_throttle + 4);
 
-        // supported_features (v3+) -- empty array
-        int32_t supported_features_count = htonl(0);
-        buf.insert(buf.end(), (uint8_t *)&supported_features_count, (uint8_t *)&supported_features_count + 4);
+        // supported_features (COMPACT ARRAY) -- empty
+        encode_unsigned_varint(buf, 0 + 1); // count=0, encode 1
 
-        // finalize_features_epoch (v3+) -- INT64, -1 means not present
-        int64_t finalize_features_epoch = -1;
-        int64_t net_finalize_features_epoch = htobe64(finalize_features_epoch);
-        buf.insert(buf.end(), (uint8_t *)&net_finalize_features_epoch, (uint8_t *)&net_finalize_features_epoch + 8);
+        // finalize_features_epoch (INT64, -1)
+        int64_t finalize_features_epoch = htobe64(-1);
+        buf.insert(buf.end(), (uint8_t*)&finalize_features_epoch, (uint8_t*)&finalize_features_epoch + 8);
 
-        // finalized_features (v3+) -- empty array
-        int32_t finalized_features_count = htonl(0);
-        buf.insert(buf.end(), (uint8_t *)&finalized_features_count, (uint8_t *)&finalized_features_count + 4);
+        // finalized_features (COMPACT ARRAY) -- empty
+        encode_unsigned_varint(buf, 0 + 1);
 
-        // Append a single zero byte for the tagged fields (flexible versioning)
+        // TAGGED FIELDS (uvarint 0)
         buf.push_back(0);
 
-        // Now set the size field at the start (excluding itself)
+        // Set message length
         int32_t msglen = buf.size() - 4;
         int32_t net_msglen = htonl(msglen);
         memcpy(buf.data(), &net_msglen, 4);
 
-        // Write all
         writeall(buf.data(), buf.size());
         return 0;
     }
