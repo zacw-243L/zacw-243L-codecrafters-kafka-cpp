@@ -245,14 +245,14 @@ int main(int argc, char *argv[])
     s.ListenForConnection();
     s.AcceptConnection();
     Message m = s.RecieveV0();
-    // If APIVersions request
-    if (m.request_api_key == 18)
+    // If APIVersions request with supported version (0 to 4)
+    if (m.request_api_key == 18 && m.request_api_version >= 0 && m.request_api_version <= 4)
     {
         s.RespondApiVersionsV4(m.correlation_id);
     }
     else
     {
-        s.RespondV0(m.correlation_id); // fallback
+        s.RespondV0(m.correlation_id); // fallback for unsupported version or other requests
     }
     return 0;
 }
