@@ -57,15 +57,24 @@ void *process_client(void *arg)
         char *body = new char[size - sizeof(h) - h.client_id_length];
         read(client_fd, body, size - sizeof(h) - h.client_id_length);
 
+        // ---- Modified Section: Add both API_VERSIONS (18) and DESCRIBE_TOPIC_PARTITIONS (75) ----
         api_versions content;
-        content.size = 2;
-        content.array = new api_version[content.size];
-        content.array[0].api_key = ntohs(18);
-        content.array[0].min_version = ntohs(0);
-        content.array[0].max_version = ntohs(4);
-        content.array[1].api_key = ntohs(75);
-        content.array[1].min_version = ntohs(0);
-        content.array[1].max_version = ntohs(0);
+        content.size = 3; // 2 entries, size = count+1 (like original code)
+        content.array = new api_version[content.size - 1];
+
+        // API_VERSIONS (18)
+        content.array[0].api_key = htons(18);
+        content.array[0].min_version = htons(0);
+        content.array[0].max_version = htons(4);
+        content.array[0].tag_buffer = 0;
+
+        // DESCRIBE_TOPIC_PARTITIONS (75)
+        content.array[1].api_key = htons(75);
+        content.array[1].min_version = htons(0);
+        content.array[1].max_version = htons(0);
+        content.array[1].tag_buffer = 0;
+        // -----------------------------------------------------------------------------
+
         uint32_t throttle_time_ms = 0;
         int8_t tag = 0;
         uint32_t res_size;
@@ -81,12 +90,12 @@ void *process_client(void *arg)
         else
         {
             error_code = 0;
-            res_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(content.size) + content.size * 7 + sizeof(throttle_time_ms) + sizeof(tag));
+            res_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(content.size) + (content.size - 1) * 7 + sizeof(throttle_time_ms) + sizeof(tag));
             write(client_fd, &res_size, sizeof(res_size));
             write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
             write(client_fd, &(error_code), sizeof(error_code));
             write(client_fd, &content.size, sizeof(content.size));
-            for (int i = 0; i < content.size; i++)
+            for (int i = 0; i < content.size - 1; i++)
             {
                 write(client_fd, &content.array[i], 7);
             }
@@ -94,8 +103,8 @@ void *process_client(void *arg)
             write(client_fd, &(tag), sizeof(tag));
         }
         delete[] client_id;
-        delete[] body;
         delete[] content.array;
+        delete[] body;
     }
 
     close(client_fd);
