@@ -11,96 +11,96 @@
 #include <string_view>
 #include <cassert>
 
-inline void write_int32_be(uint8_t **dest, int32_t value)
+inline void x1(uint8_t **x2, int32_t x3)
 {
-    (*dest)[0] = (value >> 24) & 0xFF;
-    (*dest)[1] = (value >> 16) & 0xFF;
-    (*dest)[2] = (value >> 8) & 0xFF;
-    (*dest)[3] = value & 0xFF;
-    (*dest) += 4;
+    (*x2)[0] = (x3 >> 24) & 0xFF;
+    (*x2)[1] = (x3 >> 16) & 0xFF;
+    (*x2)[2] = (x3 >> 8) & 0xFF;
+    (*x2)[3] = x3 & 0xFF;
+    (*x2) += 4;
 }
-inline void write_int64_be(uint8_t **dest, int64_t value)
+inline void x4(uint8_t **x5, int64_t x6)
 {
-    (*dest)[0] = (value >> 56) & 0xFF;
-    (*dest)[1] = (value >> 48) & 0xFF;
-    (*dest)[2] = (value >> 40) & 0xFF;
-    (*dest)[3] = (value >> 32) & 0xFF;
-    (*dest)[4] = (value >> 24) & 0xFF;
-    (*dest)[5] = (value >> 16) & 0xFF;
-    (*dest)[6] = (value >> 8) & 0xFF;
-    (*dest)[7] = value & 0xFF;
-    (*dest) += 8;
+    (*x5)[0] = (x6 >> 56) & 0xFF;
+    (*x5)[1] = (x6 >> 48) & 0xFF;
+    (*x5)[2] = (x6 >> 40) & 0xFF;
+    (*x5)[3] = (x6 >> 32) & 0xFF;
+    (*x5)[4] = (x6 >> 24) & 0xFF;
+    (*x5)[5] = (x6 >> 16) & 0xFF;
+    (*x5)[6] = (x6 >> 8) & 0xFF;
+    (*x5)[7] = x6 & 0xFF;
+    (*x5) += 8;
 }
-size_t varint_encode(uint64_t value, uint8_t *out)
+size_t x7(uint64_t x8, uint8_t *x9)
 {
-    uint8_t tmp[10];
-    int i = 0;
+    uint8_t x10[10];
+    int x11 = 0;
     do
     {
-        tmp[i++] = value & 0x7F;
-        value >>= 7;
-    } while (value > 0);
+        x10[x11++] = x8 & 0x7F;
+        x8 >>= 7;
+    } while (x8 > 0);
 
-    size_t out_len = i;
-    for (int j = i - 1; j >= 0; --j)
+    size_t x12 = x11;
+    for (int x13 = x11 - 1; x13 >= 0; --x13)
     {
-        uint8_t byte = tmp[j];
-        if (j != 0)
-            byte |= 0x80;
-        *out++ = byte;
+        uint8_t x14 = x10[x13];
+        if (x13 != 0)
+            x14 |= 0x80;
+        *x9++ = x14;
     }
-    return out_len;
+    return x12;
 }
 
-inline void write_int16_be(uint8_t **dest, int16_t value)
+inline void x15(uint8_t **x16, int16_t x17)
 {
-    (*dest)[0] = (value >> 8) & 0xFF;
-    (*dest)[1] = value & 0xFF;
-    (*dest) += 2;
+    (*x16)[0] = (x17 >> 8) & 0xFF;
+    (*x16)[1] = x17 & 0xFF;
+    (*x16) += 2;
 }
 
-inline void copy_bytes(uint8_t **dest, char *src, int cnt)
+inline void x18(uint8_t **x19, char *x20, int x21)
 {
-    for (int i = 0; i < cnt; ++i)
+    for (int x22 = 0; x22 < x21; ++x22)
     {
-        *(*dest)++ = src[i];
+        *(*x19)++ = x20[x22];
     }
 }
 
-void hexdump(const void *data, size_t size)
+void x23(const void *x24, size_t x25)
 {
-    const unsigned char *byte = (const unsigned char *)data;
-    char buffer[4096];
-    size_t buf_used = 0;
-    size_t i, j;
+    const unsigned char *x26 = (const unsigned char *)x24;
+    char x27[4096];
+    size_t x28 = 0;
+    size_t x29, x30;
 
-    for (i = 0; i < size; i += 16)
+    for (x29 = 0; x29 < x25; x29 += 16)
     {
-        char line[80];
-        int len = snprintf(line, sizeof(line), "%08zx  ", i);
+        char x31[80];
+        int x32 = snprintf(x31, sizeof(x31), "%08zx  ", x29);
 
-        for (j = 0; j < 16; j++)
+        for (x30 = 0; x30 < 16; x30++)
         {
-            if (i + j < size)
-                len += snprintf(line + len, sizeof(line) - len, "%02x ", byte[i + j]);
+            if (x29 + x30 < x25)
+                x32 += snprintf(x31 + x32, sizeof(x31) - x32, "%02x ", x26[x29 + x30]);
             else
-                len += snprintf(line + len, sizeof(line) - len, "   ");
-            if (j == 7)
-                len += snprintf(line + len, sizeof(line) - len, " ");
+                x32 += snprintf(x31 + x32, sizeof(x31) - x32, "   ");
+            if (x30 == 7)
+                x32 += snprintf(x31 + x32, sizeof(x31) - x32, " ");
         }
 
-        len += snprintf(line + len, sizeof(line) - len, " |");
-        for (j = 0; j < 16 && i + j < size; j++)
+        x32 += snprintf(x31 + x32, sizeof(x31) - x32, " |");
+        for (x30 = 0; x30 < 16 && x29 + x30 < x25; x30++)
         {
-            unsigned char ch = byte[i + j];
-            len += snprintf(line + len, sizeof(line) - len, "%c", isprint(ch) ? ch : '.');
+            unsigned char x33 = x26[x29 + x30];
+            x32 += snprintf(x31 + x32, sizeof(x31) - x32, "%c", isprint(x33) ? x33 : '.');
         }
-        len += snprintf(line + len, sizeof(line) - len, "|\n");
+        x32 += snprintf(x31 + x32, sizeof(x31) - x32, "|\n");
 
-        if (buf_used + len < sizeof(buffer))
+        if (x28 + x32 < sizeof(x27))
         {
-            memcpy(buffer + buf_used, line, len);
-            buf_used += len;
+            memcpy(x27 + x28, x31, x32);
+            x28 += x32;
         }
         else
         {
@@ -108,319 +108,319 @@ void hexdump(const void *data, size_t size)
         }
     }
 
-    buffer[buf_used] = '\0';
+    x27[x28] = '\0';
     printf("Idx       | Hex                                             | ASCII\n"
            "----------+-------------------------------------------------+-----------------\n"
            "%s",
-           buffer);
+           x27);
 }
 
-int main(int argc, char *argv[])
+int main(int x34, char *x35[])
 {
 
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0)
+    int x36 = socket(AF_INET, SOCK_STREAM, 0);
+    if (x36 < 0)
     {
         std::cerr << "Failed to create server socket: " << std::endl;
         return 1;
     }
 
-    int reuse = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
+    int x37 = 1;
+    if (setsockopt(x36, SOL_SOCKET, SO_REUSEADDR, &x37, sizeof(x37)) < 0)
     {
-        close(server_fd);
+        close(x36);
         std::cerr << "setsockopt failed: " << std::endl;
         return 1;
     }
 
-    struct sockaddr_in server_addr{};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(9092);
+    struct sockaddr_in x38{};
+    x38.sin_family = AF_INET;
+    x38.sin_addr.s_addr = INADDR_ANY;
+    x38.sin_port = htons(9092);
 
-    if (bind(server_fd, reinterpret_cast<struct sockaddr *>(&server_addr), sizeof(server_addr)) != 0)
+    if (bind(x36, reinterpret_cast<struct sockaddr *>(&x38), sizeof(x38)) != 0)
     {
-        close(server_fd);
+        close(x36);
         std::cerr << "Failed to bind to port 9092" << std::endl;
         return 1;
     }
 
-    int connection_backlog = 5;
-    if (listen(server_fd, connection_backlog) != 0)
+    int x39 = 5;
+    if (listen(x36, x39) != 0)
     {
-        close(server_fd);
+        close(x36);
         std::cerr << "listen failed" << std::endl;
         return 1;
     }
 
     std::cout << "Waiting for a client to connect...\n";
 
-    struct sockaddr_in client_addr{};
-    socklen_t client_addr_len = sizeof(client_addr);
+    struct sockaddr_in x40{};
+    socklen_t x41 = sizeof(x40);
 
     std::cerr << "Logs from your program will appear here!\n";
 
     while (1)
     {
-        int client_fd = accept(server_fd, reinterpret_cast<struct sockaddr *>(&client_addr), &client_addr_len);
+        int x42 = accept(x36, reinterpret_cast<struct sockaddr *>(&x40), &x41);
         if (fork() != 0)
             continue;
         std::cout << "Client connected\n";
 
-        char req_buf[1024];
-        uint8_t resp_buf[1024];
-        while (size_t bytes_read = read(client_fd, req_buf, 1024))
+        char x43[1024];
+        uint8_t x44[1024];
+        while (size_t x45 = read(x42, x43, 1024))
         {
 
-            req_buf[bytes_read] = 0;
-            memset(resp_buf, 0, 1024);
-            uint8_t *ptr = resp_buf + 4;
-            constexpr int cor_id_offset = 8;
-            copy_bytes(&ptr, &req_buf[cor_id_offset], 4);
+            x43[x45] = 0;
+            memset(x44, 0, 1024);
+            uint8_t *x46 = x44 + 4;
+            constexpr int x47 = 8;
+            x18(&x46, &x43[x47], 4);
 
-            constexpr int req_api_offset = 4;
-            int16_t request_api_key = ((uint8_t)req_buf[req_api_offset + 0] >> 8 |
-                                       (uint8_t)req_buf[req_api_offset + 1]);
+            constexpr int x48 = 4;
+            int16_t x49 = ((uint8_t)x43[x48 + 0] >> 8 |
+                                       (uint8_t)x43[x48 + 1]);
 
-            int16_t request_api_version = ((uint8_t)req_buf[req_api_offset + 2] >> 8 |
-                                           (uint8_t)req_buf[req_api_offset + 3]);
+            int16_t x50 = ((uint8_t)x43[x48 + 2] >> 8 |
+                                           (uint8_t)x43[x48 + 3]);
 
-            constexpr int8_t TAG_BUFFER = 0;
+            constexpr int8_t x51 = 0;
 
-            if (request_api_key == 0x004b)
+            if (x49 == 0x004b)
             {
-                constexpr int client_id_offset = cor_id_offset + 4;
-                int client_id_len = ((uint8_t)req_buf[client_id_offset] | (uint8_t)req_buf[client_id_offset + 1]) + 1 + 2;
-                int topic_offset = client_id_offset + client_id_len;
-                *ptr++ = TAG_BUFFER;
-                write_int32_be(&ptr, 0);
-                int8_t topic_length = req_buf[topic_offset++];
-                *ptr++ = topic_length;
+                constexpr int x52 = x47 + 4;
+                int x53 = ((uint8_t)x43[x52] | (uint8_t)x43[x52 + 1]) + 1 + 2;
+                int x54 = x52 + x53;
+                *x46++ = x51;
+                x1(&x46, 0);
+                int8_t x55 = x43[x54++];
+                *x46++ = x55;
 
-                int log_fd = open("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log", O_RDONLY, S_IRUSR);
-                assert(log_fd != -1);
-                uint8_t metadata[1024];
-                size_t log_bytes = read(log_fd, metadata, 1024);
+                int x56 = open("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log", O_RDONLY, S_IRUSR);
+                assert(x56 != -1);
+                uint8_t x57[1024];
+                size_t x58 = read(x56, x57, 1024);
 
-                constexpr int log_topic_offset = 162;
+                constexpr int x59 = 162;
 
-                for (int8_t i = 1; i < topic_length; ++i)
+                for (int8_t x60 = 1; x60 < x55; ++x60)
                 {
-                    std::string_view topic_name(&req_buf[topic_offset + 1]);
+                    std::string_view x61(&x43[x54 + 1]);
 
-                    int curr_idx = 0;
-                    bool found_topic = false;
-                    int found_topic_id_offset = 0;
-                    int8_t partitions_length = 1;
-                    while (curr_idx < log_bytes)
+                    int x62 = 0;
+                    bool x63 = false;
+                    int x64 = 0;
+                    int8_t x65 = 1;
+                    while (x62 < x58)
                     {
-                        int batch_length_idx = curr_idx + 8;
-                        int32_t batch_len = ((uint8_t)metadata[batch_length_idx + 0] >> 24 |
-                                             (uint8_t)metadata[batch_length_idx + 1] >> 16 |
-                                             (uint8_t)metadata[batch_length_idx + 2] >> 8 |
-                                             (uint8_t)metadata[batch_length_idx + 3]);
+                        int x66 = x62 + 8;
+                        int32_t x67 = ((uint8_t)x57[x66 + 0] >> 24 |
+                                             (uint8_t)x57[x66 + 1] >> 16 |
+                                             (uint8_t)x57[x66 + 2] >> 8 |
+                                             (uint8_t)x57[x66 + 3]);
 
-                        if (batch_len <= 0)
+                        if (x67 <= 0)
                             break;
-                        int next_part = curr_idx + 12 + batch_len;
+                        int x68 = x62 + 12 + x67;
 
-                        int records_len_offset = curr_idx + 57;
-                        int32_t records_len = ((uint8_t)metadata[records_len_offset + 0] >> 24 |
-                                               (uint8_t)metadata[records_len_offset + 1] >> 16 |
-                                               (uint8_t)metadata[records_len_offset + 2] >> 8 |
-                                               (uint8_t)metadata[records_len_offset + 3]);
+                        int x69 = x62 + 57;
+                        int32_t x70 = ((uint8_t)x57[x69 + 0] >> 24 |
+                                               (uint8_t)x57[x69 + 1] >> 16 |
+                                               (uint8_t)x57[x69 + 2] >> 8 |
+                                               (uint8_t)x57[x69 + 3]);
 
-                        int this_topic_idx = curr_idx + 71;
-                        std::string_view this_topic_name((char *)metadata + this_topic_idx);
-                        if (this_topic_name == topic_name)
+                        int x71 = x62 + 71;
+                        std::string_view x72((char *)x57 + x71);
+                        if (x72 == x61)
                         {
-                            found_topic = true;
-                            found_topic_id_offset = this_topic_idx;
-                            partitions_length = records_len;
+                            x63 = true;
+                            x64 = x71;
+                            x65 = x70;
                             break;
                         }
-                        curr_idx = next_part;
+                        x62 = x68;
                     }
 
-                    if (found_topic)
+                    if (x63)
                     {
-                        write_int16_be(&ptr, 0);
-                        copy_bytes(&ptr, &req_buf[topic_offset], topic_name.length() + 1);
-                        copy_bytes(&ptr, (char *)metadata + found_topic_id_offset + topic_name.length(), 16);
-                        *ptr++ = 0;
-                        *ptr++ = partitions_length;
-                        for (int i = 0; i < (partitions_length - 1); ++i)
+                        x15(&x46, 0);
+                        x18(&x46, &x43[x54], x61.length() + 1);
+                        x18(&x46, (char *)x57 + x64 + x61.length(), 16);
+                        *x46++ = 0;
+                        *x46++ = x65;
+                        for (int x73 = 0; x73 < (x65 - 1); ++x73)
                         {
-                            write_int16_be(&ptr, 0);
-                            write_int32_be(&ptr, i);
-                            write_int32_be(&ptr, 1);
-                            write_int32_be(&ptr, 0);
-                            *ptr++ = 2;
-                            write_int32_be(&ptr, 1);
-                            *ptr++ = 2;
-                            write_int32_be(&ptr, 1);
-                            *ptr++ = 1;
-                            *ptr++ = 1;
-                            *ptr++ = 1;
-                            *ptr++ = 0;
+                            x15(&x46, 0);
+                            x1(&x46, x73);
+                            x1(&x46, 1);
+                            x1(&x46, 0);
+                            *x46++ = 2;
+                            x1(&x46, 1);
+                            *x46++ = 2;
+                            x1(&x46, 1);
+                            *x46++ = 1;
+                            *x46++ = 1;
+                            *x46++ = 1;
+                            *x46++ = 0;
                         }
 
-                        write_int32_be(&ptr, 0x00000df8);
-                        *ptr++ = TAG_BUFFER;
+                        x1(&x46, 0x00000df8);
+                        *x46++ = x51;
                     }
                     else
                     {
-                        write_int16_be(&ptr, 3);
-                        copy_bytes(&ptr, &req_buf[topic_offset], topic_name.length() + 1);
-                        for (int i = 0; i < 16; ++i)
-                            *ptr++ = 0;
+                        x15(&x46, 3);
+                        x18(&x46, &x43[x54], x61.length() + 1);
+                        for (int x74 = 0; x74 < 16; ++x74)
+                            *x46++ = 0;
 
-                        *ptr++ = 0;
-                        *ptr++ = 1;
-                        write_int32_be(&ptr, 0x00000df8);
-                        *ptr++ = TAG_BUFFER;
+                        *x46++ = 0;
+                        *x46++ = 1;
+                        x1(&x46, 0x00000df8);
+                        *x46++ = x51;
                     }
-                    topic_offset += topic_name.length() + 2;
+                    x54 += x61.length() + 2;
                 }
 
-                *ptr++ = 0xFF;
-                *ptr++ = TAG_BUFFER;
+                *x46++ = 0xFF;
+                *x46++ = x51;
             }
 
-            if (request_api_key == 0x0001)
+            if (x49 == 0x0001)
             {
-                *ptr++ = TAG_BUFFER;
-                write_int32_be(&ptr, 0);
+                *x46++ = x51;
+                x1(&x46, 0);
 
-                constexpr int client_id_offset = cor_id_offset + 4;
-                int client_id_len = ((uint8_t)req_buf[client_id_offset] | (uint8_t)req_buf[client_id_offset + 1]) + 1 + 2;
-                int topic_offset = client_id_offset + client_id_len + 21;
-                int8_t topic_length = req_buf[topic_offset++];
+                constexpr int x52 = x47 + 4;
+                int x53 = ((uint8_t)x43[x52] | (uint8_t)x43[x52 + 1]) + 1 + 2;
+                int x54 = x52 + x53 + 21;
+                int8_t x55 = x43[x54++];
 
-                write_int16_be(&ptr, 0);
-                write_int32_be(&ptr, 0);
-                *ptr++ = topic_length;
+                x15(&x46, 0);
+                x1(&x46, 0);
+                *x46++ = x55;
 
-                int log_fd = open("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log", O_RDONLY, S_IRUSR);
-                assert(log_fd != -1);
-                uint8_t metadata[1024];
-                size_t total_bytes_in_log = read(log_fd, metadata, 1024);
-                constexpr int log_topic_offset = 162;
+                int x56 = open("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log", O_RDONLY, S_IRUSR);
+                assert(x56 != -1);
+                uint8_t x57[1024];
+                size_t x58 = read(x56, x57, 1024);
+                constexpr int x59 = 162;
 
-                for (int8_t i = 1; i < topic_length; ++i)
+                for (int8_t x60 = 1; x60 < x55; ++x60)
                 {
-                    copy_bytes(&ptr, req_buf + topic_offset, 16);
+                    x18(&x46, x43 + x54, 16);
 
-                    int curr_log_idx = 0;
-                    bool found_topic = false;
-                    int found_topic_id_offset = 0;
-                    int8_t partitions_length = req_buf[topic_offset + 16];
-                    int16_t error_code = 100;
-                    size_t compact_records_length = 0;
-                    uint8_t record_data[1024];
+                    int x62 = 0;
+                    bool x63 = false;
+                    int x64 = 0;
+                    int8_t x65 = x43[x54 + 16];
+                    int16_t x75 = 100;
+                    size_t x76 = 0;
+                    uint8_t x77[1024];
 
-                    while (curr_log_idx < total_bytes_in_log)
+                    while (x62 < x58)
                     {
-                        int batch_length_idx = curr_log_idx + 8;
-                        int32_t batch_len = ((uint8_t)metadata[batch_length_idx + 0] >> 24 |
-                                             (uint8_t)metadata[batch_length_idx + 1] >> 16 |
-                                             (uint8_t)metadata[batch_length_idx + 2] >> 8 |
-                                             (uint8_t)metadata[batch_length_idx + 3]);
+                        int x66 = x62 + 8;
+                        int32_t x67 = ((uint8_t)x57[x66 + 0] >> 24 |
+                                             (uint8_t)x57[x66 + 1] >> 16 |
+                                             (uint8_t)x57[x66 + 2] >> 8 |
+                                             (uint8_t)x57[x66 + 3]);
 
-                        if (batch_len <= 0)
+                        if (x67 <= 0)
                             break;
-                        int next_part = curr_log_idx + 12 + batch_len;
+                        int x68 = x62 + 12 + x67;
 
-                        int records_len_offset = curr_log_idx + 57;
-                        int32_t records_len = ((uint8_t)metadata[records_len_offset + 0] >> 24 |
-                                               (uint8_t)metadata[records_len_offset + 1] >> 16 |
-                                               (uint8_t)metadata[records_len_offset + 2] >> 8 |
-                                               (uint8_t)metadata[records_len_offset + 3]);
+                        int x69 = x62 + 57;
+                        int32_t x70 = ((uint8_t)x57[x69 + 0] >> 24 |
+                                               (uint8_t)x57[x69 + 1] >> 16 |
+                                               (uint8_t)x57[x69 + 2] >> 8 |
+                                               (uint8_t)x57[x69 + 3]);
 
-                        int log_topic_idx = curr_log_idx + 70;
-                        uint8_t log_topic_name_length = metadata[log_topic_idx];
-                        uint8_t *A = (uint8_t *)metadata + log_topic_idx + log_topic_name_length;
-                        uint8_t *B = (uint8_t *)req_buf + topic_offset;
+                        int x78 = x62 + 70;
+                        uint8_t x79 = x57[x78];
+                        uint8_t *x80 = (uint8_t *)x57 + x78 + x79;
+                        uint8_t *x81 = (uint8_t *)x43 + x54;
 
-                        if (std::memcmp(A, B, 16) == 0)
+                        if (std::memcmp(x80, x81, 16) == 0)
                         {
-                            std::string topic_name((char *)metadata + log_topic_idx + 1);
-                            std::string record_file = "/tmp/kraft-combined-logs/" + topic_name + "-0/00000000000000000000.log";
-                            int record_fd = open(record_file.c_str(), O_RDONLY, S_IRUSR);
-                            assert(record_fd != -1);
+                            std::string x82((char *)x57 + x78 + 1);
+                            std::string x83 = "/tmp/kraft-combined-logs/" + x82 + "-0/00000000000000000000.log";
+                            int x84 = open(x83.c_str(), O_RDONLY, S_IRUSR);
+                            assert(x84 != -1);
 
-                            compact_records_length = read(record_fd, record_data, 1024);
-                            hexdump(record_data, compact_records_length);
+                            x76 = read(x84, x77, 1024);
+                            x23(x77, x76);
 
-                            found_topic = true;
-                            found_topic_id_offset = log_topic_idx;
-                            error_code = 0;
+                            x63 = true;
+                            x64 = x78;
+                            x75 = 0;
                             break;
                         }
-                        curr_log_idx = next_part;
+                        x62 = x68;
                     }
 
-                    *ptr++ = partitions_length;
-                    for (int8_t i = 0; i < (partitions_length - 1); ++i)
+                    *x46++ = x65;
+                    for (int8_t x85 = 0; x85 < (x65 - 1); ++x85)
                     {
-                        write_int32_be(&ptr, i);
-                        write_int16_be(&ptr, error_code);
+                        x1(&x46, x85);
+                        x15(&x46, x75);
 
-                        write_int64_be(&ptr, 0xffffffffffffffff);
-                        write_int64_be(&ptr, 0xffffffffffffffff);
-                        write_int64_be(&ptr, 0xffffffffffffffff);
-                        *ptr++ = 0;
-                        write_int32_be(&ptr, 0xffffffff);
-                        uint8_t compact_records_length_buf[9];
-                        size_t varint_len = varint_encode(compact_records_length, compact_records_length_buf);
-                        copy_bytes(&ptr, (char *)compact_records_length_buf, varint_len);
-                        copy_bytes(&ptr, (char *)record_data, compact_records_length);
-                        *ptr++ = TAG_BUFFER;
-                        *ptr++ = TAG_BUFFER;
+                        x4(&x46, 0xffffffffffffffff);
+                        x4(&x46, 0xffffffffffffffff);
+                        x4(&x46, 0xffffffffffffffff);
+                        *x46++ = 0;
+                        x1(&x46, 0xffffffff);
+                        uint8_t x86[9];
+                        size_t x87 = x7(x76, x86);
+                        x18(&x46, (char *)x86, x87);
+                        x18(&x46, (char *)x77, x76);
+                        *x46++ = x51;
+                        *x46++ = x51;
                     }
                 }
-                *ptr++ = TAG_BUFFER;
+                *x46++ = x51;
             }
-            if (request_api_key == 0x0012)
+            if (x49 == 0x0012)
             {
-                int error_code = 35;
-                if (request_api_version <= 4)
-                    error_code = 0;
+                int x88 = 35;
+                if (x50 <= 4)
+                    x88 = 0;
 
-                write_int16_be(&ptr, error_code);
-                int8_t num_api_keys = 1 + 3;
-                *ptr++ = num_api_keys;
-                copy_bytes(&ptr, &req_buf[req_api_offset], 2);
-                write_int16_be(&ptr, 0);
-                write_int16_be(&ptr, request_api_version);
-                *ptr++ = TAG_BUFFER;
+                x15(&x46, x88);
+                int8_t x89 = 1 + 3;
+                *x46++ = x89;
+                x18(&x46, &x43[x48], 2);
+                x15(&x46, 0);
+                x15(&x46, x50);
+                *x46++ = x51;
 
-                write_int16_be(&ptr, 75);
-                write_int16_be(&ptr, 0);
-                write_int16_be(&ptr, 0);
-                *ptr++ = TAG_BUFFER;
+                x15(&x46, 75);
+                x15(&x46, 0);
+                x15(&x46, 0);
+                *x46++ = x51;
 
-                write_int16_be(&ptr, 1);
-                write_int16_be(&ptr, 0);
-                write_int16_be(&ptr, 16);
-                *ptr++ = TAG_BUFFER;
+                x15(&x46, 1);
+                x15(&x46, 0);
+                x15(&x46, 16);
+                *x46++ = x51;
 
-                write_int32_be(&ptr, 0);
-                *ptr++ = TAG_BUFFER;
+                x1(&x46, 0);
+                *x46++ = x51;
             }
 
-            int message_size = ptr - resp_buf;
-            ptr = resp_buf;
-            write_int32_be(&ptr, message_size - 4);
+            int x90 = x46 - x44;
+            x46 = x44;
+            x1(&x46, x90 - 4);
 
-            write(client_fd, resp_buf, message_size);
+            write(x42, x44, x90);
         }
 
         fflush(stdout);
         std::cout.flush();
-        close(client_fd);
+        close(x42);
     }
 
-    close(server_fd);
+    close(x36);
     return 0;
 }
