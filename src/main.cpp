@@ -59,10 +59,13 @@ void *process_client(void *arg)
 
         api_versions content;
         content.size = 2;
-        content.array = new api_version[content.size - 1];
+        content.array = new api_version[content.size];
         content.array[0].api_key = ntohs(18);
         content.array[0].min_version = ntohs(0);
         content.array[0].max_version = ntohs(4);
+        content.array[1].api_key = ntohs(75);
+        content.array[1].min_version = ntohs(0);
+        content.array[1].max_version = ntohs(0);
         uint32_t throttle_time_ms = 0;
         int8_t tag = 0;
         uint32_t res_size;
@@ -78,12 +81,12 @@ void *process_client(void *arg)
         else
         {
             error_code = 0;
-            res_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(content.size) + (content.size - 1) * 7 + sizeof(throttle_time_ms) + sizeof(tag));
+            res_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(content.size) + content.size * 7 + sizeof(throttle_time_ms) + sizeof(tag));
             write(client_fd, &res_size, sizeof(res_size));
             write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
             write(client_fd, &(error_code), sizeof(error_code));
             write(client_fd, &content.size, sizeof(content.size));
-            for (int i = 0; i < content.size - 1; i++)
+            for (int i = 0; i < content.size; i++)
             {
                 write(client_fd, &content.array[i], 7);
             }
@@ -91,6 +94,8 @@ void *process_client(void *arg)
             write(client_fd, &(tag), sizeof(tag));
         }
         delete[] client_id;
+        delete[] body;
+        delete[] content.array;
     }
 
     close(client_fd);
@@ -101,7 +106,6 @@ int main(int argc, char *argv[])
 {
     pthread_t clients[50];
 
-    // Disable output buffering
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
@@ -112,8 +116,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Since the tester restarts your program quite often, setting SO_REUSEADDR
-    // ensures that we don't run into 'Address already in use' errors
     int reuse = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
     {
@@ -147,7 +149,6 @@ int main(int argc, char *argv[])
     struct sockaddr_in client_addr{};
     socklen_t client_addr_len = sizeof(client_addr);
 
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
     std::cerr << "Logs from your program will appear here!\n";
 
     int client_fd;
