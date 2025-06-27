@@ -32,12 +32,12 @@ struct api_versions
     api_version *array;
 };
 
-uint32_t read_unsigned_varint(int fd) {
+uint32_t read_unsigned_varint_buf(const char* buf, size_t& offset, size_t buflen) {
     uint32_t result = 0;
     int shift = 0;
     while (true) {
-        uint8_t byte;
-        if (read(fd, &byte, 1) != 1) throw std::runtime_error("Failed to read uvarint");
+        if (offset >= buflen) throw std::runtime_error("Failed to read uvarint: buffer overrun");
+        uint8_t byte = (uint8_t)buf[offset++];
         result |= (uint32_t)(byte & 0x7F) << shift;
         if (!(byte & 0x80)) break;
         shift += 7;
@@ -45,22 +45,27 @@ uint32_t read_unsigned_varint(int fd) {
     return result;
 }
 
-std::string read_compact_string(int fd) {
-    uint32_t len = read_unsigned_varint(fd);
+std::string read_compact_string_buf(const char* buf, size_t& offset, size_t buflen) {
+    uint32_t len = read_unsigned_varint_buf(buf, offset, buflen);
     if (len == 0) return "";
-    std::vector<char> buf(len - 1);
-    size_t got = 0;
-    while (got < buf.size()) {
-        ssize_t r = read(fd, buf.data() + got, buf.size() - got);
-        if (r <= 0) throw std::runtime_error("Failed to read compact string");
-        got += r;
-    }
-    return std::string(buf.data(), buf.size());
+    if (offset + (len-1) > buflen) throw std::runtime_error("Failed to read compact string: buffer overrun");
+    std::string s(buf + offset, buf + offset + (len - 1));
+    offset += (len - 1);
+    return s;
 }
 
-void write_null_uuid(int fd) {
-    uint8_t uuid[16] = {0};
-    write(fd, uuid, 16);
+void write_null_uuid_to_vector(std::vector<uint8_t>& v) {
+    for (int i = 0; i < 16; ++i) v.push_back(0);
+}
+
+void write_all(int fd, const void* data, size_t len) {
+    const char* p = (const char*)data;
+    while (len > 0) {
+        ssize_t n = write(fd, p, len);
+        if (n <= 0) break;
+        p += n;
+        len -= n;
+    }
 }
 
 void *process_client(void *arg)
@@ -87,80 +92,72 @@ void *process_client(void *arg)
         read(client_fd, client_id, h.client_id_length);
 
         size = ntohl(size);
-        char *body = new char[size - sizeof(h) - h.client_id_length];
-        read(client_fd, body, size - sizeof(h) - h.client_id_length);
+        size_t body_size = size - sizeof(h) - h.client_id_length;
+        char *body = new char[body_size];
+        read(client_fd, body, body_size);
 
         // --- DescribeTopicPartitions (API key 75, version 0) ---
         if (h.request_api_key == 75 && h.request_api_version == 0) {
-            // Parse request body directly from client_fd
-            uint32_t topics_count = read_unsigned_varint(client_fd);
+            // Parse from body buffer, not from fd!
+            size_t offset = 0;
+            uint32_t topics_count = read_unsigned_varint_buf(body, offset, body_size);
             if (topics_count < 1) throw std::runtime_error("Invalid topics array");
-            std::string topic_name = read_compact_string(client_fd);
-            uint8_t topic_tagged_fields;
-            read(client_fd, &topic_tagged_fields, 1);
-
-            // Skip remaining topics for robustness
+            std::string topic_name = read_compact_string_buf(body, offset, body_size);
+            uint8_t topic_tagged_fields = (uint8_t)body[offset++];
             for (uint32_t t = 1; t < topics_count - 1; ++t) {
-                (void)read_compact_string(client_fd);
-                read(client_fd, &topic_tagged_fields, 1);
+                (void)read_compact_string_buf(body, offset, body_size);
+                offset++;
             }
 
             int32_t response_partition_limit;
-            read(client_fd, &response_partition_limit, 4);
+            memcpy(&response_partition_limit, body + offset, 4); offset += 4;
 
-            std::string cursor_topic_name = read_compact_string(client_fd);
+            std::string cursor_topic_name = read_compact_string_buf(body, offset, body_size);
             int32_t cursor_partition_index;
-            read(client_fd, &cursor_partition_index, 4);
-            uint8_t cursor_tagged_fields;
-            read(client_fd, &cursor_tagged_fields, 1);
+            memcpy(&cursor_partition_index, body + offset, 4); offset += 4;
+            uint8_t cursor_tagged_fields = (uint8_t)body[offset++];
 
-            uint8_t req_tagged_fields;
-            read(client_fd, &req_tagged_fields, 1);
+            uint8_t req_tagged_fields = (uint8_t)body[offset++];
 
-            // Build response
+            // Build DescribeTopicPartitionsResponse (v0)
             std::vector<uint8_t> resp;
-            resp.resize(4); // Reserve for length
+            resp.resize(4); // reserve for length
 
-            // Correlation ID
-            uint32_t corr = h.correlation_id;
+            // correlation_id
+            int32_t corr = h.correlation_id;
             corr = htonl(corr);
             resp.insert(resp.end(), (uint8_t*)&corr, (uint8_t*)&corr + 4);
 
-            // Topics array (1 entry)
+            // topics (compact array, 1 entry)
             resp.push_back(0x02); // 1 + 1 = 2
 
-            // Topic name
-            uint32_t name_len = topic_name.size();
-            uint32_t name_len_uvarint = name_len + 1;
+            // topic_name (compact string)
+            uint32_t name_len_uvarint = topic_name.size() + 1;
             resp.push_back((uint8_t)name_len_uvarint);
             resp.insert(resp.end(), topic_name.begin(), topic_name.end());
 
-            // Topic ID (null UUID)
-            write_null_uuid(client_fd); // Directly write to avoid vector overflow
+            // topic_id: 16 bytes of zeros
+            write_null_uuid_to_vector(resp);
 
-            // Error code
+            // error_code (int16)
             int16_t err = htons(3); // UNKNOWN_TOPIC_OR_PARTITION
             resp.insert(resp.end(), (uint8_t*)&err, (uint8_t*)&err + 2);
 
-            // Partitions (empty)
+            // partitions (empty compact array)
             resp.push_back(0x01); // 0 + 1 = 1
 
-            // Tagged fields
-            resp.push_back(0x00); // Topic tagged fields
-            resp.push_back(0x00); // Response tagged fields
+            // topic tagged fields
+            resp.push_back(0x00);
 
-            // Set message length
-            int32_t msglen = resp.size() - 4 + 16; // Add 16 bytes for UUID written directly
+            // response tagged fields
+            resp.push_back(0x00);
+
+            // Set length at start
+            int32_t msglen = resp.size() - 4;
             int32_t net_msglen = htonl(msglen);
             memcpy(resp.data(), &net_msglen, 4);
 
-            // Write response
-            size_t w = 0;
-            while (w < resp.size()) {
-                ssize_t n = write(client_fd, resp.data() + w, resp.size() - w);
-                if (n <= 0) break;
-                w += n;
-            }
+            write_all(client_fd, resp.data(), resp.size());
 
             delete[] client_id;
             delete[] body;
