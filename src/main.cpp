@@ -98,25 +98,31 @@ void *process_client(void *arg)
 
         // --- DescribeTopicPartitions (API key 75, version 0) ---
         if (h.request_api_key == 75 && h.request_api_version == 0) {
-            // Parse from body buffer, not from fd!
             size_t offset = 0;
             uint32_t topics_count = read_unsigned_varint_buf(body, offset, body_size);
             if (topics_count < 1) throw std::runtime_error("Invalid topics array");
+            // Only process the first topic
             std::string topic_name = read_compact_string_buf(body, offset, body_size);
+            if (offset >= body_size) throw std::runtime_error("Buffer overrun (topic_tagged_fields)");
             uint8_t topic_tagged_fields = (uint8_t)body[offset++];
+            // Skip remaining topics for robustness
             for (uint32_t t = 1; t < topics_count - 1; ++t) {
                 (void)read_compact_string_buf(body, offset, body_size);
+                if (offset >= body_size) throw std::runtime_error("Buffer overrun (topic_tagged_fields in loop)");
                 offset++;
             }
 
+            if (offset + 4 > body_size) throw std::runtime_error("Buffer overrun (response_partition_limit)");
             int32_t response_partition_limit;
             memcpy(&response_partition_limit, body + offset, 4); offset += 4;
 
             std::string cursor_topic_name = read_compact_string_buf(body, offset, body_size);
+            if (offset + 4 > body_size) throw std::runtime_error("Buffer overrun (cursor_partition_index)");
             int32_t cursor_partition_index;
             memcpy(&cursor_partition_index, body + offset, 4); offset += 4;
+            if (offset >= body_size) throw std::runtime_error("Buffer overrun (cursor_tagged_fields)");
             uint8_t cursor_tagged_fields = (uint8_t)body[offset++];
-
+            if (offset >= body_size) throw std::runtime_error("Buffer overrun (req_tagged_fields)");
             uint8_t req_tagged_fields = (uint8_t)body[offset++];
 
             // Build DescribeTopicPartitionsResponse (v0)
