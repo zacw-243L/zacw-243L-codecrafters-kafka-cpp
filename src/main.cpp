@@ -70,7 +70,7 @@ void write_all(int fd, const void* data, size_t len) {
 
 void *process_client(void *arg)
 {
-    int client_fd = *(int *)arg;
+     int client_fd = *(int *)arg;
 
     while (true)
     {
@@ -101,15 +101,14 @@ void *process_client(void *arg)
             size_t offset = 0;
             uint32_t topics_count = read_unsigned_varint_buf(body, offset, body_size);
             if (topics_count < 1) throw std::runtime_error("Invalid topics array");
-            // Only process the first topic
-            std::string topic_name = read_compact_string_buf(body, offset, body_size);
-            if (offset >= body_size) throw std::runtime_error("Buffer overrun (topic_tagged_fields)");
-            uint8_t topic_tagged_fields = (uint8_t)body[offset++];
-            // Skip remaining topics for robustness
-            for (uint32_t t = 1; t < topics_count - 1; ++t) {
-                (void)read_compact_string_buf(body, offset, body_size);
-                if (offset >= body_size) throw std::runtime_error("Buffer overrun (topic_tagged_fields in loop)");
-                offset++;
+
+            // For (topics_count-1) entries:
+            std::string topic_name = "";
+            uint8_t topic_tagged_fields = 0;
+            for (uint32_t t = 0; t < topics_count - 1; ++t) {
+                topic_name = read_compact_string_buf(body, offset, body_size);
+                if (offset >= body_size) throw std::runtime_error("Buffer overrun (topic_tagged_fields)");
+                topic_tagged_fields = (uint8_t)body[offset++];
             }
 
             if (offset + 4 > body_size) throw std::runtime_error("Buffer overrun (response_partition_limit)");
