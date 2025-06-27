@@ -57,29 +57,70 @@ void *process_client(void *arg)
         char *body = new char[size - sizeof(h) - h.client_id_length];
         read(client_fd, body, size - sizeof(h) - h.client_id_length);
 
-        // ---- Modified Section: Add both API_VERSIONS (18) and DESCRIBE_TOPIC_PARTITIONS (75) ----
         api_versions content;
-        content.size = 3; // 2 entries, size = count+1 (like original code)
-        content.array = new api_version[content.size - 1];
-
-        // API_VERSIONS (18)
-        content.array[0].api_key = htons(18);
-        content.array[0].min_version = htons(0);
-        content.array[0].max_version = htons(4);
-        content.array[0].tag_buffer = 0;
-
-        // DESCRIBE_TOPIC_PARTITIONS (75)
-        content.array[1].api_key = htons(75);
-        content.array[1].min_version = htons(0);
-        content.array[1].max_version = htons(0);
-        content.array[1].tag_buffer = 0;
-        // -----------------------------------------------------------------------------
-
+        content.size = 2;
+        content.array = new api_version[content.size];
+        content.array[0].api_key = ntohs(18);
+        content.array[0].min_version = ntohs(0);
+        content.array[0].max_version = ntohs(4);
+        content.array[1].api_key = ntohs(75);
+        content.array[1].min_version = ntohs(0);
+        content.array[1].max_version = ntohs(0);
         uint32_t throttle_time_ms = 0;
         int8_t tag = 0;
         uint32_t res_size;
 
-        if (h.request_api_version > 4)
+        if (h.request_api_key == 18 && h.request_api_version <= 4)
+        {
+            error_code = 0;
+            res_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(content.size) + content.size * 7 + sizeof(throttle_time_ms) + sizeof(tag));
+            write(client_fd, &res_size, sizeof(res_size));
+            write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
+            write(client_fd, &(error_code), sizeof(error_code));
+            write(client_fd, &content.size, sizeof(content.size));
+            for (int i = 0; i < content.size; i++)
+            {
+                write(client_fd, &content.array[i], 7);
+            }
+            write(client_fd, &(throttle_time_ms), sizeof(throttle_time_ms));
+            write(client_fd, &(tag), sizeof(tag));
+        }
+        else if (h.request_api_key == 75 && h.request_api_version == 0)
+        {
+            // Parse request body for topic name
+            uint32_t body_offset = 0;
+            uint16_t topic_name_length;
+            memcpy(&topic_name_length, body + body_offset, sizeof(uint16_t));
+            topic_name_length = ntohs(topic_name_length);
+            body_offset += sizeof(uint16_t);
+            char *topic_name = new char[topic_name_length + 1];
+            memcpy(topic_name, body + body_offset, topic_name_length);
+            topic_name[topic_name_length] = '\0';
+            body_offset += topic_name_length;
+
+            // Response for unknown topic
+            error_code = htons(3); // UNKNOWN_TOPIC_OR_PARTITION
+            uint32_t response_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(uint16_t) + topic_name_length + 16 + sizeof(uint32_t));
+            write(client_fd, &response_size, sizeof(response_size));
+            write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
+            write(client_fd, &error_code, sizeof(error_code));
+
+            // Write topic name length and name
+            uint16_t name_length_net = htons(topic_name_length);
+            write(client_fd, &name_length_net, sizeof(uint16_t));
+            write(client_fd, topic_name, topic_name_length);
+
+            // Write topic_id (00000000-0000-0000-0000-000000000000)
+            char topic_id[16] = {0};
+            write(client_fd, topic_id, 16);
+
+            // Write empty partitions array (size 0)
+            uint32_t partitions_size = htonl(0);
+            write(client_fd, &partitions_size, sizeof(uint32_t));
+
+            delete[] topic_name;
+        }
+        else if (h.request_api_version > 4)
         {
             error_code = htons(35);
             res_size = sizeof(h.correlation_id) + sizeof(error_code);
@@ -87,24 +128,10 @@ void *process_client(void *arg)
             write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
             write(client_fd, &(error_code), sizeof(error_code));
         }
-        else
-        {
-            error_code = 0;
-            res_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(content.size) + (content.size - 1) * 7 + sizeof(throttle_time_ms) + sizeof(tag));
-            write(client_fd, &res_size, sizeof(res_size));
-            write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
-            write(client_fd, &(error_code), sizeof(error_code));
-            write(client_fd, &content.size, sizeof(content.size));
-            for (int i = 0; i < content.size - 1; i++)
-            {
-                write(client_fd, &content.array[i], 7);
-            }
-            write(client_fd, &(throttle_time_ms), sizeof(throttle_time_ms));
-            write(client_fd, &(tag), sizeof(tag));
-        }
+
         delete[] client_id;
-        delete[] content.array;
         delete[] body;
+        delete[] content.array;
     }
 
     close(client_fd);
