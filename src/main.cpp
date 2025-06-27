@@ -29,13 +29,14 @@ struct Message
         int32_t net_size;
         int16_t net_api_key, net_api_version;
         int32_t net_correlation_id;
-        if (recv(client_fd, &net_size, 4, 0) != 4)
+        // The protocol requires us to first read 4+2+2+4 = 12 bytes header, then the rest as body.
+        if (recv(client_fd, &net_size, 4, MSG_WAITALL) != 4)
             throw std::runtime_error("size read failed");
-        if (recv(client_fd, &net_api_key, 2, 0) != 2)
+        if (recv(client_fd, &net_api_key, 2, MSG_WAITALL) != 2)
             throw std::runtime_error("api_key read failed");
-        if (recv(client_fd, &net_api_version, 2, 0) != 2)
+        if (recv(client_fd, &net_api_version, 2, MSG_WAITALL) != 2)
             throw std::runtime_error("api_version read failed");
-        if (recv(client_fd, &net_correlation_id, 4, 0) != 4)
+        if (recv(client_fd, &net_correlation_id, 4, MSG_WAITALL) != 4)
             throw std::runtime_error("correlation_id read failed");
         size = ntohl(net_size);
         request_api_key = ntohs(net_api_key);
@@ -45,9 +46,14 @@ struct Message
         if (payload_size < 0)
             throw std::runtime_error("negative payload size");
         buf = std::make_unique<char[]>(payload_size + 1);
-        ssize_t bytes_read = recv(client_fd, buf.get(), payload_size, 0);
-        if (bytes_read != payload_size)
-            throw std::runtime_error("invalid payload size");
+        ssize_t bytes_read = 0;
+        while (bytes_read < payload_size)
+        {
+            ssize_t r = recv(client_fd, buf.get() + bytes_read, payload_size - bytes_read, 0);
+            if (r <= 0)
+                throw std::runtime_error("invalid payload size");
+            bytes_read += r;
+        }
         buf[payload_size] = '\0';
     }
 };
@@ -104,7 +110,6 @@ public:
             std::cerr << "listen failed" << std::endl;
             return 1;
         }
-
         std::cout << "Waiting for a client to connect...\n";
         return 0;
     }
@@ -162,12 +167,12 @@ public:
 
         // Correlation ID (int32)
         int32_t corr = htonl(correlation_id);
-        buf.insert(buf.end(), (uint8_t*)&corr, (uint8_t*)&corr + 4);
+        buf.insert(buf.end(), (uint8_t *)&corr, (uint8_t *)&corr + 4);
 
         // Error code (int16)
         int16_t error_code = 0;
         int16_t net_error_code = htons(error_code);
-        buf.insert(buf.end(), (uint8_t*)&net_error_code, (uint8_t*)&net_error_code + 2);
+        buf.insert(buf.end(), (uint8_t *)&net_error_code, (uint8_t *)&net_error_code + 2);
 
         // Api versions (compact array, 1 entry)
         encode_unsigned_varint(buf, 1 + 1); // Count=1, encoded as 2
@@ -175,16 +180,16 @@ public:
         int16_t api_key = htons(18);
         int16_t min_version = htons(0);
         int16_t max_version = htons(4);
-        buf.insert(buf.end(), (uint8_t*)&api_key, (uint8_t*)&api_key + 2);
-        buf.insert(buf.end(), (uint8_t*)&min_version, (uint8_t*)&min_version + 2);
-        buf.insert(buf.end(), (uint8_t*)&max_version, (uint8_t*)&max_version + 2);
+        buf.insert(buf.end(), (uint8_t *)&api_key, (uint8_t *)&api_key + 2);
+        buf.insert(buf.end(), (uint8_t *)&min_version, (uint8_t *)&min_version + 2);
+        buf.insert(buf.end(), (uint8_t *)&max_version, (uint8_t *)&max_version + 2);
         // Api versions TAG_BUFFER (empty)
         buf.push_back(0);
 
         // Throttle time (int32)
         int32_t throttle_time_ms = 0;
         int32_t net_throttle = htonl(throttle_time_ms);
-        buf.insert(buf.end(), (uint8_t*)&net_throttle, (uint8_t*)&net_throttle + 4);
+        buf.insert(buf.end(), (uint8_t *)&net_throttle, (uint8_t *)&net_throttle + 4);
 
         // Supported features (compact array, empty)
         encode_unsigned_varint(buf, 0 + 1); // Count=0, encoded as 1
@@ -196,7 +201,7 @@ public:
 #else
         int64_t net_finalize_features_epoch = finalize_features_epoch;
 #endif
-        buf.insert(buf.end(), (uint8_t*)&net_finalize_features_epoch, (uint8_t*)&net_finalize_features_epoch + 8);
+        buf.insert(buf.end(), (uint8_t *)&net_finalize_features_epoch, (uint8_t *)&net_finalize_features_epoch + 8);
 
         // Finalized features (compact array, empty)
         encode_unsigned_varint(buf, 0 + 1); // Count=0, encoded as 1
@@ -244,24 +249,25 @@ int main(int argc, char *argv[])
     s.bindToPort(9092);
     s.ListenForConnection();
     s.AcceptConnection();
+
+    // Loop to handle multiple sequential requests on the same connection
     while (true)
     {
         try
         {
             Message m = s.RecieveV0();
-            // If APIVersions request with supported version (0 to 4)
             if (m.request_api_key == 18 && m.request_api_version >= 0 && m.request_api_version <= 4)
             {
                 s.RespondApiVersionsV4(m.correlation_id);
             }
             else
             {
-                s.RespondV0(m.correlation_id); // fallback for unsupported version or other requests
+                s.RespondV0(m.correlation_id); // fallback
             }
         }
-        catch (const std::runtime_error& e)
+        catch (const std::exception &e)
         {
-            // Exit loop on connection closure or error (e.g., client disconnect)
+            // Probably client closed connection, so break loop
             break;
         }
     }
