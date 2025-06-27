@@ -184,6 +184,9 @@ public:
         int32_t finalized_features_count = htonl(0);
         buf.insert(buf.end(), (uint8_t *)&finalized_features_count, (uint8_t *)&finalized_features_count + 4);
 
+        // Append a single zero byte for the tagged fields (flexible versioning)
+        buf.push_back(0);
+
         // Now set the size field at the start (excluding itself)
         int32_t msglen = buf.size() - 4;
         int32_t net_msglen = htonl(msglen);
