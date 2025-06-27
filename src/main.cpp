@@ -13,8 +13,9 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <vector>
+#include <fcntl.h>
 
-// Message struct (as used in your original code)
+// Message struct (unchanged)
 struct Message
 {
     int32_t size;
@@ -29,7 +30,6 @@ struct Message
         int32_t net_size;
         int16_t net_api_key, net_api_version;
         int32_t net_correlation_id;
-        // The protocol requires us to first read 4+2+2+4 = 12 bytes header, then the rest as body.
         if (recv(client_fd, &net_size, 4, MSG_WAITALL) != 4)
             throw std::runtime_error("size read failed");
         if (recv(client_fd, &net_api_key, 2, MSG_WAITALL) != 2)
@@ -58,7 +58,7 @@ struct Message
     }
 };
 
-// Helper for 16-bit host to network
+// Helper for 16-bit host to network (unchanged)
 int16_t bit16htonl(uint16_t num)
 {
     return (num >> 8) + (num << 8);
@@ -84,6 +84,13 @@ public:
         {
             close(server_fd);
             std::cerr << "setsockopt failed: " << std::endl;
+            exit(1);
+        }
+        // Set server socket to non-blocking
+        if (fcntl(server_fd, F_SETFL, O_NONBLOCK) < 0)
+        {
+            close(server_fd);
+            std::cerr << "Failed to set server socket to non-blocking: " << std::endl;
             exit(1);
         }
     }
@@ -251,9 +258,32 @@ int main(int argc, char *argv[])
 
     while (true)
     {
-        s.AcceptConnection();
-        // Loop to handle multiple sequential requests on the same connection
-        while (true)
+        // Try to accept a new connection non-blocking
+        struct sockaddr_in client_addr{};
+        socklen_t client_addr_len = sizeof(client_addr);
+        int32_t client_fd = accept(s.server_fd, reinterpret_cast<struct sockaddr *>(&client_addr), &client_addr_len);
+        if (client_fd >= 0)
+        {
+            // New client connected
+            if (s.client_connected)
+            {
+                // Close previous client connection
+                shutdown(s.client_fd, SHUT_WR);
+                close(s.client_fd);
+            }
+            s.client_fd = client_fd;
+            s.client_connected = true;
+            std::cout << "Client connected\n";
+        }
+        else if (errno != EAGAIN && errno != EWOULDBLOCK)
+        {
+            // Fatal error on accept
+            std::cerr << "Accept failed: " << strerror(errno) << std::endl;
+            break;
+        }
+
+        // Handle requests from current client if connected
+        if (s.client_connected)
         {
             try
             {
@@ -269,12 +299,15 @@ int main(int argc, char *argv[])
             }
             catch (const std::exception &e)
             {
-                // Probably client closed connection, so break loop and accept next
-                break;
+                // Client closed connection or error, close client socket
+                if (s.client_connected)
+                {
+                    shutdown(s.client_fd, SHUT_WR);
+                    close(s.client_fd);
+                    s.client_connected = false;
+                }
             }
         }
     }
     return 0;
 }
-
-// not working
