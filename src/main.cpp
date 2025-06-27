@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <pthread.h>
+#include <vector>
 
 struct Header
 {
@@ -31,6 +32,39 @@ struct api_versions
     api_version *array;
 };
 
+uint32_t read_unsigned_varint(int fd) {
+    uint32_t result = 0;
+    int shift = 0;
+    while (true) {
+        uint8_t byte;
+        if (read(fd, &byte, 1) != 1) throw std::runtime_error("Failed to read uvarint");
+        result |= (uint32_t)(byte & 0x7F) << shift;
+        if (!(byte & 0x80)) break;
+        shift += 7;
+    }
+    return result;
+}
+
+// --- Helper for reading COMPACT_STRING (Kafka flexible format) ---
+std::string read_compact_string(int fd) {
+    uint32_t len = read_unsigned_varint(fd);
+    if (len == 0) return "";
+    std::vector<char> buf(len - 1);
+    size_t got = 0;
+    while (got < buf.size()) {
+        ssize_t r = read(fd, buf.data() + got, buf.size() - got);
+        if (r <= 0) throw std::runtime_error("Failed to read compact string");
+        got += r;
+    }
+    return std::string(buf.data(), buf.size());
+}
+
+// --- Helper for writing a UUID: 16 bytes of all-zero ---
+void write_null_uuid(int fd) {
+    uint8_t uuid[16] = {0};
+    write(fd, uuid, 16);
+}
+
 void *process_client(void *arg)
 {
     int client_fd = *(int *)arg;
@@ -45,6 +79,7 @@ void *process_client(void *arg)
         {
             break;
         }
+        if (bytes != 4) break;
         read(client_fd, &h, sizeof(h));
         h.request_api_key = ntohs(h.request_api_key);
         h.request_api_version = ntohs(h.request_api_version);
@@ -57,70 +92,114 @@ void *process_client(void *arg)
         char *body = new char[size - sizeof(h) - h.client_id_length];
         read(client_fd, body, size - sizeof(h) - h.client_id_length);
 
+        // --- DescribeTopicPartitions (API key 75, version 0) ---
+        if (h.request_api_key == 75 && h.request_api_version == 0) {
+
+            // Parse topics array (compact)
+            uint32_t topics_count = read_unsigned_varint(client_fd); // num topics + 1
+            if (topics_count < 1) throw std::runtime_error("Invalid topics array");
+            // Only process the first topic
+            std::string topic_name = read_compact_string(client_fd);
+            uint8_t topic_tagged_fields;
+            read(client_fd, &topic_tagged_fields, 1);
+
+            // Skip any remaining topics in the array for robustness
+            for (uint32_t t = 1; t < topics_count - 1; ++t) {
+                (void)read_compact_string(client_fd);
+                read(client_fd, &topic_tagged_fields, 1);
+            }
+
+            // response_partition_limit
+            int32_t response_partition_limit;
+            read(client_fd, &response_partition_limit, 4);
+
+            // cursor: compact string, int32, tagged fields
+            std::string cursor_topic_name = read_compact_string(client_fd);
+            int32_t cursor_partition_index;
+            read(client_fd, &cursor_partition_index, 4);
+            uint8_t cursor_tagged_fields;
+            read(client_fd, &cursor_tagged_fields, 1);
+
+            // tagged_fields for request
+            uint8_t req_tagged_fields;
+            read(client_fd, &req_tagged_fields, 1);
+
+            std::vector<uint8_t> resp;
+            resp.resize(4); // reserve for length
+
+            // correlation_id
+            int32_t corr = h.correlation_id;
+            corr = htonl(corr);
+            resp.insert(resp.end(), (uint8_t*)&corr, (uint8_t*)&corr + 4);
+
+            // topics (compact array, 1 entry)
+            // array length as unsigned varint (count + 1)
+            resp.push_back(0x02); // 1 + 1 = 2
+
+            // topic_name (compact string)
+            uint32_t name_len = topic_name.size();
+            // encode as unsigned varint (len + 1)
+            uint32_t name_len_uvarint = name_len + 1;
+            // Kafka uvarint encoding (safe for < 128)
+            resp.push_back((uint8_t)name_len_uvarint);
+            resp.insert(resp.end(), topic_name.begin(), topic_name.end());
+
+            // topic_id: 16 bytes of zeros
+            for (int i = 0; i < 16; ++i) resp.push_back(0);
+
+            // error_code (int16)
+            int16_t err = htons(3); // UNKNOWN_TOPIC_OR_PARTITION
+            resp.insert(resp.end(), (uint8_t*)&err, (uint8_t*)&err + 2);
+
+            // partitions (empty compact array)
+            resp.push_back(0x01); // 0 + 1 = 1
+
+            // topic tagged fields
+            resp.push_back(0x00);
+
+            // response tagged fields
+            resp.push_back(0x00);
+
+            // Set length at start
+            int32_t msglen = resp.size() - 4;
+            int32_t net_msglen = htonl(msglen);
+            memcpy(resp.data(), &net_msglen, 4);
+
+            // Write all
+            size_t w = 0;
+            while (w < resp.size()) {
+                ssize_t n = write(client_fd, resp.data() + w, resp.size() - w);
+                if (n <= 0) break;
+                w += n;
+            }
+
+            delete[] client_id;
+            delete[] body;
+            continue;
+        }
+
+        // ---- APIVersions ----
         api_versions content;
-        content.size = 2;
-        content.array = new api_version[content.size];
-        content.array[0].api_key = ntohs(18);
-        content.array[0].min_version = ntohs(0);
-        content.array[0].max_version = ntohs(4);
-        content.array[1].api_key = ntohs(75);
-        content.array[1].min_version = ntohs(0);
-        content.array[1].max_version = ntohs(0);
+        content.size = 3; // 2 entries, size = count+1 (like original code)
+        content.array = new api_version[content.size - 1];
+
+        // API_VERSIONS (18)
+        content.array[0].api_key = htons(18);
+        content.array[0].min_version = htons(0);
+        content.array[0].max_version = htons(4);
+        content.array[0].tag_buffer = 0;
+
+        // DESCRIBE_TOPIC_PARTITIONS (75)
+        content.array[1].api_key = htons(75);
+        content.array[1].min_version = htons(0);
+        content.array[1].max_version = htons(0);
+        content.array[1].tag_buffer = 0;
+
         uint32_t throttle_time_ms = 0;
         int8_t tag = 0;
         uint32_t res_size;
 
-        if (h.request_api_key == 18 && h.request_api_version <= 4)
-        {
-            error_code = 0;
-            res_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(content.size) + content.size * 7 + sizeof(throttle_time_ms) + sizeof(tag));
-            write(client_fd, &res_size, sizeof(res_size));
-            write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
-            write(client_fd, &(error_code), sizeof(error_code));
-            write(client_fd, &content.size, sizeof(content.size));
-            for (int i = 0; i < content.size; i++)
-            {
-                write(client_fd, &content.array[i], 7);
-            }
-            write(client_fd, &(throttle_time_ms), sizeof(throttle_time_ms));
-            write(client_fd, &(tag), sizeof(tag));
-        }
-        else if (h.request_api_key == 75 && h.request_api_version == 0)
-        {
-            // Parse request body for topic name
-            uint32_t body_offset = 0;
-            uint16_t topic_name_length;
-            memcpy(&topic_name_length, body + body_offset, sizeof(uint16_t));
-            topic_name_length = ntohs(topic_name_length);
-            body_offset += sizeof(uint16_t);
-            char *topic_name = new char[topic_name_length + 1];
-            memcpy(topic_name, body + body_offset, topic_name_length);
-            topic_name[topic_name_length] = '\0';
-            body_offset += topic_name_length;
-
-            // Response for unknown topic
-            error_code = htons(3); // UNKNOWN_TOPIC_OR_PARTITION
-            uint32_t response_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(uint16_t) + topic_name_length + 16 + sizeof(uint32_t));
-            write(client_fd, &response_size, sizeof(response_size));
-            write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
-            write(client_fd, &error_code, sizeof(error_code));
-
-            // Write topic name length and name
-            uint16_t name_length_net = htons(topic_name_length);
-            write(client_fd, &name_length_net, sizeof(uint16_t));
-            write(client_fd, topic_name, topic_name_length);
-
-            // Write topic_id (00000000-0000-0000-0000-000000000000)
-            char topic_id[16] = {0};
-            write(client_fd, topic_id, 16);
-
-            // Write empty partitions array (size 0)
-            uint32_t partitions_size = htonl(0);
-            write(client_fd, &partitions_size, sizeof(uint32_t));
-
-            delete[] topic_name;
-        }
-        else if (h.request_api_version > 4)
+        if (h.request_api_version > 4)
         {
             error_code = htons(35);
             res_size = sizeof(h.correlation_id) + sizeof(error_code);
@@ -128,10 +207,24 @@ void *process_client(void *arg)
             write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
             write(client_fd, &(error_code), sizeof(error_code));
         }
-
+        else
+        {
+            error_code = 0;
+            res_size = htonl(sizeof(h.correlation_id) + sizeof(error_code) + sizeof(content.size) + (content.size - 1) * 7 + sizeof(throttle_time_ms) + sizeof(tag));
+            write(client_fd, &res_size, sizeof(res_size));
+            write(client_fd, &h.correlation_id, sizeof(h.correlation_id));
+            write(client_fd, &(error_code), sizeof(error_code));
+            write(client_fd, &content.size, sizeof(content.size));
+            for (int i = 0; i < content.size - 1; i++)
+            {
+                write(client_fd, &content.array[i], 7);
+            }
+            write(client_fd, &(throttle_time_ms), sizeof(throttle_time_ms));
+            write(client_fd, &(tag), sizeof(tag));
+        }
         delete[] client_id;
-        delete[] body;
         delete[] content.array;
+        delete[] body;
     }
 
     close(client_fd);
