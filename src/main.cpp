@@ -35,14 +35,12 @@ size_t varint_encode(uint64_t value, uint8_t *out)
 {
     uint8_t tmp[10];
     int i = 0;
-    // Extract 7-bit groups from the value
     do
     {
         tmp[i++] = value & 0x7F;
         value >>= 7;
     } while (value > 0);
 
-    // Write from most significant to least
     size_t out_len = i;
     for (int j = i - 1; j >= 0; --j)
     {
@@ -78,10 +76,9 @@ void hexdump(const void *data, size_t size)
 
     for (i = 0; i < size; i += 16)
     {
-        char line[80]; // A line won't exceed 80 chars
+        char line[80];
         int len = snprintf(line, sizeof(line), "%08zx  ", i);
 
-        // Hex part
         for (j = 0; j < 16; j++)
         {
             if (i + j < size)
@@ -92,7 +89,6 @@ void hexdump(const void *data, size_t size)
                 len += snprintf(line + len, sizeof(line) - len, " ");
         }
 
-        // ASCII part
         len += snprintf(line + len, sizeof(line) - len, " |");
         for (j = 0; j < 16 && i + j < size; j++)
         {
@@ -101,7 +97,6 @@ void hexdump(const void *data, size_t size)
         }
         len += snprintf(line + len, sizeof(line) - len, "|\n");
 
-        // Append line to buffer
         if (buf_used + len < sizeof(buffer))
         {
             memcpy(buffer + buf_used, line, len);
@@ -109,12 +104,10 @@ void hexdump(const void *data, size_t size)
         }
         else
         {
-            // Prevent buffer overflow
             break;
         }
     }
 
-    // Null-terminate and print once
     buffer[buf_used] = '\0';
     printf("Idx       | Hex                                             | ASCII\n"
            "----------+-------------------------------------------------+-----------------\n"
@@ -183,7 +176,7 @@ int main(int argc, char *argv[])
             memset(resp_buf, 0, 1024);
             uint8_t *ptr = resp_buf + 4;
             constexpr int cor_id_offset = 8;
-            copy_bytes(&ptr, &req_buf[cor_id_offset], 4); // correlation ID
+            copy_bytes(&ptr, &req_buf[cor_id_offset], 4);
 
             constexpr int req_api_offset = 4;
             int16_t request_api_key = ((uint8_t)req_buf[req_api_offset + 0] >> 8 |
@@ -194,13 +187,13 @@ int main(int argc, char *argv[])
 
             constexpr int8_t TAG_BUFFER = 0;
 
-            if (request_api_key == 0x004b) // DescribeTopicPartitions
+            if (request_api_key == 0x004b)
             {
                 constexpr int client_id_offset = cor_id_offset + 4;
-                int client_id_len = ((uint8_t)req_buf[client_id_offset] | (uint8_t)req_buf[client_id_offset + 1]) + /* TAG_BUFFER BYTE */ 1 + /* LENGTH BYTES */ 2;
+                int client_id_len = ((uint8_t)req_buf[client_id_offset] | (uint8_t)req_buf[client_id_offset + 1]) + 1 + 2;
                 int topic_offset = client_id_offset + client_id_len;
                 *ptr++ = TAG_BUFFER;
-                write_int32_be(&ptr, 0); // throttle_time_ms
+                write_int32_be(&ptr, 0);
                 int8_t topic_length = req_buf[topic_offset++];
                 *ptr++ = topic_length;
 
@@ -209,13 +202,11 @@ int main(int argc, char *argv[])
                 uint8_t metadata[1024];
                 size_t log_bytes = read(log_fd, metadata, 1024);
 
-                // hexdump(metadata, log_bytes);
                 constexpr int log_topic_offset = 162;
 
                 for (int8_t i = 1; i < topic_length; ++i)
                 {
                     std::string_view topic_name(&req_buf[topic_offset + 1]);
-                    // std::cout << i << ": topic_name: " << topic_name << '\n';
 
                     int curr_idx = 0;
                     bool found_topic = false;
@@ -223,13 +214,12 @@ int main(int argc, char *argv[])
                     int8_t partitions_length = 1;
                     while (curr_idx < log_bytes)
                     {
-                        int batch_length_idx = curr_idx + 8; //  Batch Length (4 bytes)
+                        int batch_length_idx = curr_idx + 8;
                         int32_t batch_len = ((uint8_t)metadata[batch_length_idx + 0] >> 24 |
                                              (uint8_t)metadata[batch_length_idx + 1] >> 16 |
                                              (uint8_t)metadata[batch_length_idx + 2] >> 8 |
                                              (uint8_t)metadata[batch_length_idx + 3]);
 
-                        // std::cout << "batch_len: " << batch_len << '\n';
                         if (batch_len <= 0)
                             break;
                         int next_part = curr_idx + 12 + batch_len;
@@ -254,62 +244,62 @@ int main(int argc, char *argv[])
 
                     if (found_topic)
                     {
-                        write_int16_be(&ptr, 0); // (NO_ERROR)
+                        write_int16_be(&ptr, 0);
                         copy_bytes(&ptr, &req_buf[topic_offset], topic_name.length() + 1);
                         copy_bytes(&ptr, (char *)metadata + found_topic_id_offset + topic_name.length(), 16);
-                        *ptr++ = 0;                 // topic.is_internal
-                        *ptr++ = partitions_length; // # of partitions  == 1
+                        *ptr++ = 0;
+                        *ptr++ = partitions_length;
                         for (int i = 0; i < (partitions_length - 1); ++i)
                         {
-                            write_int16_be(&ptr, 0); // # Partition 0 - Error Code (INT16, 0)
-                            write_int32_be(&ptr, i); // # Partition 0 - Partition Index (INT32, 0)
-                            write_int32_be(&ptr, 1); // # Partition 0 - Leader ID (INT32, 1)
-                            write_int32_be(&ptr, 0); // # Partition 0 - Leader Epoch (INT32, 0)
-                            *ptr++ = 2;              // # Partition 0 - Replica nodes length + 1 (1 replica node)
-                            write_int32_be(&ptr, 1); // #   - Replica node 1 (INT32, 1)
-                            *ptr++ = 2;              // # Partition 0 - ISR Nodes length + 1 (INT32, 2)
-                            write_int32_be(&ptr, 1); // #   - ISR Node 1 (INT32, 1)
-                            *ptr++ = 1;              // # Partition 0 - Eligible Leader Replicas count + 1 (INT32, 1) => 0 leader replicas
-                            *ptr++ = 1;              // # Partition 0 - Last Known ELR count + 1 (INT32, 1) => 0 last known leader replica
-                            *ptr++ = 1;              // # Partition 0 - Offline replicas count + 1 (INT32, 1) => 0 offline replicas
-                            *ptr++ = 0;              // # Empty tag buffer
+                            write_int16_be(&ptr, 0);
+                            write_int32_be(&ptr, i);
+                            write_int32_be(&ptr, 1);
+                            write_int32_be(&ptr, 0);
+                            *ptr++ = 2;
+                            write_int32_be(&ptr, 1);
+                            *ptr++ = 2;
+                            write_int32_be(&ptr, 1);
+                            *ptr++ = 1;
+                            *ptr++ = 1;
+                            *ptr++ = 1;
+                            *ptr++ = 0;
                         }
 
-                        write_int32_be(&ptr, 0x00000df8); // Topic Authorized Operations
+                        write_int32_be(&ptr, 0x00000df8);
                         *ptr++ = TAG_BUFFER;
                     }
                     else
                     {
-                        write_int16_be(&ptr, 3); // (UNKNOWN_TOPIC)
+                        write_int16_be(&ptr, 3);
                         copy_bytes(&ptr, &req_buf[topic_offset], topic_name.length() + 1);
-                        for (int i = 0; i < 16; ++i) // topic_id
+                        for (int i = 0; i < 16; ++i)
                             *ptr++ = 0;
 
-                        *ptr++ = 0;                       // topic.is_internal
-                        *ptr++ = 1;                       // topic.partition
-                        write_int32_be(&ptr, 0x00000df8); // Topic Authorized Operations
+                        *ptr++ = 0;
+                        *ptr++ = 1;
+                        write_int32_be(&ptr, 0x00000df8);
                         *ptr++ = TAG_BUFFER;
                     }
                     topic_offset += topic_name.length() + 2;
                 }
 
-                *ptr++ = 0xFF; // Next Cursor (0xff, indicating a null value.)
+                *ptr++ = 0xFF;
                 *ptr++ = TAG_BUFFER;
             }
 
-            if (request_api_key == 0x0001) // Fetch
+            if (request_api_key == 0x0001)
             {
                 *ptr++ = TAG_BUFFER;
-                write_int32_be(&ptr, 0); // (throttle_time_ms)
+                write_int32_be(&ptr, 0);
 
                 constexpr int client_id_offset = cor_id_offset + 4;
-                int client_id_len = ((uint8_t)req_buf[client_id_offset] | (uint8_t)req_buf[client_id_offset + 1]) + /* TAG_BUFFER BYTE */ 1 + /* LENGTH BYTES */ 2;
+                int client_id_len = ((uint8_t)req_buf[client_id_offset] | (uint8_t)req_buf[client_id_offset + 1]) + 1 + 2;
                 int topic_offset = client_id_offset + client_id_len + 21;
                 int8_t topic_length = req_buf[topic_offset++];
 
-                write_int16_be(&ptr, 0); // (NO_ERROR)
-                write_int32_be(&ptr, 0); // (session_id)
-                *ptr++ = topic_length;   // (.num_responses) = 0
+                write_int16_be(&ptr, 0);
+                write_int32_be(&ptr, 0);
+                *ptr++ = topic_length;
 
                 int log_fd = open("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log", O_RDONLY, S_IRUSR);
                 assert(log_fd != -1);
@@ -325,13 +315,13 @@ int main(int argc, char *argv[])
                     bool found_topic = false;
                     int found_topic_id_offset = 0;
                     int8_t partitions_length = req_buf[topic_offset + 16];
-                    int16_t error_code = 100; // (UNKNOWN_TOPIC_ID)
+                    int16_t error_code = 100;
                     size_t compact_records_length = 0;
                     uint8_t record_data[1024];
 
                     while (curr_log_idx < total_bytes_in_log)
                     {
-                        int batch_length_idx = curr_log_idx + 8; //  Batch Length (4 bytes)
+                        int batch_length_idx = curr_log_idx + 8;
                         int32_t batch_len = ((uint8_t)metadata[batch_length_idx + 0] >> 24 |
                                              (uint8_t)metadata[batch_length_idx + 1] >> 16 |
                                              (uint8_t)metadata[batch_length_idx + 2] >> 8 |
@@ -370,17 +360,17 @@ int main(int argc, char *argv[])
                         curr_log_idx = next_part;
                     }
 
-                    *ptr++ = partitions_length; // # of partitions  == 1
+                    *ptr++ = partitions_length;
                     for (int8_t i = 0; i < (partitions_length - 1); ++i)
                     {
-                        write_int32_be(&ptr, i); // # Partition Index (INT32, 0)
+                        write_int32_be(&ptr, i);
                         write_int16_be(&ptr, error_code);
 
-                        write_int64_be(&ptr, 0xffffffffffffffff); // high_watermark
-                        write_int64_be(&ptr, 0xffffffffffffffff); // last_stable_offset
-                        write_int64_be(&ptr, 0xffffffffffffffff); // log_start_offset
-                        *ptr++ = 0;                               // num_aborted_transactions
-                        write_int32_be(&ptr, 0xffffffff);         // preferred_read_replica
+                        write_int64_be(&ptr, 0xffffffffffffffff);
+                        write_int64_be(&ptr, 0xffffffffffffffff);
+                        write_int64_be(&ptr, 0xffffffffffffffff);
+                        *ptr++ = 0;
+                        write_int32_be(&ptr, 0xffffffff);
                         uint8_t compact_records_length_buf[9];
                         size_t varint_len = varint_encode(compact_records_length, compact_records_length_buf);
                         copy_bytes(&ptr, (char *)compact_records_length_buf, varint_len);
@@ -391,31 +381,31 @@ int main(int argc, char *argv[])
                 }
                 *ptr++ = TAG_BUFFER;
             }
-            if (request_api_key == 0x0012) // API Versions
+            if (request_api_key == 0x0012)
             {
-                int error_code = 35; // (UNSUPPORTED_VERSION)
+                int error_code = 35;
                 if (request_api_version <= 4)
-                    error_code = 0; // (NO_ERROR)
+                    error_code = 0;
 
                 write_int16_be(&ptr, error_code);
-                int8_t num_api_keys = 1 + 3; // 1 + # of elements because 0 is null array and 1 is empty array
+                int8_t num_api_keys = 1 + 3;
                 *ptr++ = num_api_keys;
-                copy_bytes(&ptr, &req_buf[req_api_offset], 2); // api_key
-                write_int16_be(&ptr, 0);                       // min_ver
-                write_int16_be(&ptr, request_api_version);     // max_ver
-                *ptr++ = TAG_BUFFER;                           // array_end
-
-                write_int16_be(&ptr, 75); // api_key ( DescribeTopicPartitions )
-                write_int16_be(&ptr, 0);  // min_ver
-                write_int16_be(&ptr, 0);  // max_ver
-                *ptr++ = TAG_BUFFER;      // array_end
-
-                write_int16_be(&ptr, 1);  // api_key ( FETCH )
-                write_int16_be(&ptr, 0);  // min_ver
-                write_int16_be(&ptr, 16); // max_ver
+                copy_bytes(&ptr, &req_buf[req_api_offset], 2);
+                write_int16_be(&ptr, 0);
+                write_int16_be(&ptr, request_api_version);
                 *ptr++ = TAG_BUFFER;
 
-                write_int32_be(&ptr, 0); // throttle_time_ms
+                write_int16_be(&ptr, 75);
+                write_int16_be(&ptr, 0);
+                write_int16_be(&ptr, 0);
+                *ptr++ = TAG_BUFFER;
+
+                write_int16_be(&ptr, 1);
+                write_int16_be(&ptr, 0);
+                write_int16_be(&ptr, 16);
+                *ptr++ = TAG_BUFFER;
+
+                write_int32_be(&ptr, 0);
                 *ptr++ = TAG_BUFFER;
             }
 
