@@ -137,7 +137,7 @@ public:
         }
     }
 
-    // Helper: encode unsigned varint (Kafka zigzag base 128, but no negatives needed here)
+    // Helper: encode unsigned varint (Kafka base 128)
     void encode_unsigned_varint(std::vector<uint8_t> &buf, uint32_t val)
     {
         while (val > 127)
@@ -148,7 +148,7 @@ public:
         buf.push_back(static_cast<uint8_t>(val & 0x7F));
     }
 
-    // Helper: encode compact string (length as unsigned varint, then bytes)
+    // Helper: encode compact string (length as unsigned varint + data)
     void encode_compact_string(std::vector<uint8_t> &buf, const std::string &str)
     {
         encode_unsigned_varint(buf, str.size() + 1);
@@ -160,18 +160,18 @@ public:
         std::vector<uint8_t> buf;
         buf.resize(4); // reserve for length
 
-        // CorrelationId (INT32)
+        // correlation_id (int32)
         int32_t corr = htonl(correlation_id);
         buf.insert(buf.end(), (uint8_t*)&corr, (uint8_t*)&corr + 4);
 
-        // error_code (INT16)
+        // error_code (int16)
         int16_t error_code = 0;
         int16_t net_error_code = htons(error_code);
         buf.insert(buf.end(), (uint8_t*)&net_error_code, (uint8_t*)&net_error_code + 2);
 
-        // api_versions (COMPACT ARRAY)
-        encode_unsigned_varint(buf, 1 + 1); // count=1, so encode 2
-        // One entry: api_key=18, min_version=0, max_version=4
+        // api_versions (compact array)
+        encode_unsigned_varint(buf, 1 + 1); // count=1, encode 2
+        // api_key=18, min_version=0, max_version=4
         int16_t api_key = htons(18);
         int16_t min_version = htons(0);
         int16_t max_version = htons(4);
@@ -179,25 +179,30 @@ public:
         buf.insert(buf.end(), (uint8_t*)&min_version, (uint8_t*)&min_version + 2);
         buf.insert(buf.end(), (uint8_t*)&max_version, (uint8_t*)&max_version + 2);
 
-        // throttle_time_ms (INT32)
+        // throttle_time_ms (int32)
         int32_t throttle_time_ms = 0;
         int32_t net_throttle = htonl(throttle_time_ms);
         buf.insert(buf.end(), (uint8_t*)&net_throttle, (uint8_t*)&net_throttle + 4);
 
-        // supported_features (COMPACT ARRAY) -- empty
-        encode_unsigned_varint(buf, 0 + 1); // count=0, encode 1
-
-        // finalize_features_epoch (INT64, -1)
-        int64_t finalize_features_epoch = htobe64(-1);
-        buf.insert(buf.end(), (uint8_t*)&finalize_features_epoch, (uint8_t*)&finalize_features_epoch + 8);
-
-        // finalized_features (COMPACT ARRAY) -- empty
+        // supported_features (compact array, empty)
         encode_unsigned_varint(buf, 0 + 1);
 
-        // TAGGED FIELDS (uvarint 0)
+        // finalize_features_epoch (int64, -1)
+        int64_t finalize_features_epoch = -1;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        int64_t net_finalize_features_epoch = __builtin_bswap64(finalize_features_epoch);
+#else
+        int64_t net_finalize_features_epoch = finalize_features_epoch;
+#endif
+        buf.insert(buf.end(), (uint8_t*)&net_finalize_features_epoch, (uint8_t*)&net_finalize_features_epoch + 8);
+
+        // finalized_features (compact array, empty)
+        encode_unsigned_varint(buf, 0 + 1);
+
+        // FINAL tag buffer (uvarint 0)
         buf.push_back(0);
 
-        // Set message length
+        // Set length at the start
         int32_t msglen = buf.size() - 4;
         int32_t net_msglen = htonl(msglen);
         memcpy(buf.data(), &net_msglen, 4);
