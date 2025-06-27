@@ -157,61 +157,61 @@ public:
 
     int32_t RespondApiVersionsV4(int32_t correlation_id)
     {
-std::vector<uint8_t> buf;
-    buf.resize(4); // Reserve 4 bytes for message length
+        std::vector<uint8_t> buf;
+        buf.resize(4); // Reserve 4 bytes for message length
 
-    // Correlation ID (int32)
-    int32_t corr = htonl(correlation_id);
-    buf.insert(buf.end(), (uint8_t*)&corr, (uint8_t*)&corr + 4);
+        // Correlation ID (int32)
+        int32_t corr = htonl(correlation_id);
+        buf.insert(buf.end(), (uint8_t*)&corr, (uint8_t*)&corr + 4);
 
-    // Error code (int16)
-    int16_t error_code = 0;
-    int16_t net_error_code = htons(error_code);
-    buf.insert(buf.end(), (uint8_t*)&net_error_code, (uint8_t*)&net_error_code + 2);
+        // Error code (int16)
+        int16_t error_code = 0;
+        int16_t net_error_code = htons(error_code);
+        buf.insert(buf.end(), (uint8_t*)&net_error_code, (uint8_t*)&net_error_code + 2);
 
-    // Api versions (compact array, 1 entry)
-    encode_unsigned_varint(buf, 1 + 1); // Count=1, encoded as 2
-    // Api key=18 (API_VERSIONS), min_version=0, max_version=4
-    int16_t api_key = htons(18);
-    int16_t min_version = htons(0);
-    int16_t max_version = htons(4);
-    buf.insert(buf.end(), (uint8_t*)&api_key, (uint8_t*)&api_key + 2);
-    buf.insert(buf.end(), (uint8_t*)&min_version, (uint8_t*)&min_version + 2);
-    buf.insert(buf.end(), (uint8_t*)&max_version, (uint8_t*)&max_version + 2);
-    // Api versions TAG_BUFFER (empty)
-    buf.push_back(0);
+        // Api versions (compact array, 1 entry)
+        encode_unsigned_varint(buf, 1 + 1); // Count=1, encoded as 2
+        // Api key=18 (API_VERSIONS), min_version=0, max_version=4
+        int16_t api_key = htons(18);
+        int16_t min_version = htons(0);
+        int16_t max_version = htons(4);
+        buf.insert(buf.end(), (uint8_t*)&api_key, (uint8_t*)&api_key + 2);
+        buf.insert(buf.end(), (uint8_t*)&min_version, (uint8_t*)&min_version + 2);
+        buf.insert(buf.end(), (uint8_t*)&max_version, (uint8_t*)&max_version + 2);
+        // Api versions TAG_BUFFER (empty)
+        buf.push_back(0);
 
-    // Throttle time (int32)
-    int32_t throttle_time_ms = 0;
-    int32_t net_throttle = htonl(throttle_time_ms);
-    buf.insert(buf.end(), (uint8_t*)&net_throttle, (uint8_t*)&net_throttle + 4);
+        // Throttle time (int32)
+        int32_t throttle_time_ms = 0;
+        int32_t net_throttle = htonl(throttle_time_ms);
+        buf.insert(buf.end(), (uint8_t*)&net_throttle, (uint8_t*)&net_throttle + 4);
 
-    // Supported features (compact array, empty)
-    encode_unsigned_varint(buf, 0 + 1); // Count=0, encoded as 1
+        // Supported features (compact array, empty)
+        encode_unsigned_varint(buf, 0 + 1); // Count=0, encoded as 1
 
-    // Finalize features epoch (int64)
-    int64_t finalize_features_epoch = -1;
+        // Finalize features epoch (int64)
+        int64_t finalize_features_epoch = -1;
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    int64_t net_finalize_features_epoch = __builtin_bswap64(finalize_features_epoch);
+        int64_t net_finalize_features_epoch = __builtin_bswap64(finalize_features_epoch);
 #else
-    int64_t net_finalize_features_epoch = finalize_features_epoch;
+        int64_t net_finalize_features_epoch = finalize_features_epoch;
 #endif
-    buf.insert(buf.end(), (uint8_t*)&net_finalize_features_epoch, (uint8_t*)&net_finalize_features_epoch + 8);
+        buf.insert(buf.end(), (uint8_t*)&net_finalize_features_epoch, (uint8_t*)&net_finalize_features_epoch + 8);
 
-    // Finalized features (compact array, empty)
-    encode_unsigned_varint(buf, 0 + 1); // Count=0, encoded as 1
+        // Finalized features (compact array, empty)
+        encode_unsigned_varint(buf, 0 + 1); // Count=0, encoded as 1
 
-    // Final TAG_BUFFER (empty)
-    buf.push_back(0);
+        // Final TAG_BUFFER (empty)
+        buf.push_back(0);
 
-    // Set message length (excluding the 4-byte length field itself)
-    int32_t msglen = buf.size() - 4;
-    int32_t net_msglen = htonl(msglen);
-    memcpy(buf.data(), &net_msglen, 4);
+        // Set message length (excluding the 4-byte length field itself)
+        int32_t msglen = buf.size() - 4;
+        int32_t net_msglen = htonl(msglen);
+        memcpy(buf.data(), &net_msglen, 4);
 
-    // Send the response
-    writeall(buf.data(), buf.size());
-    return 0;
+        // Send the response
+        writeall(buf.data(), buf.size());
+        return 0;
     }
 
     // Fallback for non-ApiVersions requests (just returns error)
@@ -244,15 +244,26 @@ int main(int argc, char *argv[])
     s.bindToPort(9092);
     s.ListenForConnection();
     s.AcceptConnection();
-    Message m = s.RecieveV0();
-    // If APIVersions request with supported version (0 to 4)
-    if (m.request_api_key == 18 && m.request_api_version >= 0 && m.request_api_version <= 4)
+    while (true)
     {
-        s.RespondApiVersionsV4(m.correlation_id);
-    }
-    else
-    {
-        s.RespondV0(m.correlation_id); // fallback for unsupported version or other requests
+        try
+        {
+            Message m = s.RecieveV0();
+            // If APIVersions request with supported version (0 to 4)
+            if (m.request_api_key == 18 && m.request_api_version >= 0 && m.request_api_version <= 4)
+            {
+                s.RespondApiVersionsV4(m.correlation_id);
+            }
+            else
+            {
+                s.RespondV0(m.correlation_id); // fallback for unsupported version or other requests
+            }
+        }
+        catch (const std::runtime_error& e)
+        {
+            // Exit loop on connection closure or error (e.g., client disconnect)
+            break;
+        }
     }
     return 0;
 }
