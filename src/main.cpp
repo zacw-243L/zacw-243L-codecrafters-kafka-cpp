@@ -63,16 +63,6 @@ void write_null_uuid(int fd) {
     write(fd, uuid, 16);
 }
 
-void write_all(int fd, const void* data, size_t len) {
-    const char* p = (const char*)data;
-    while (len > 0) {
-        ssize_t n = write(fd, p, len);
-        if (n <= 0) break;
-        p += n;
-        len -= n;
-    }
-}
-
 void *process_client(void *arg)
 {
     int client_fd = *(int *)arg;
@@ -102,103 +92,75 @@ void *process_client(void *arg)
 
         // --- DescribeTopicPartitions (API key 75, version 0) ---
         if (h.request_api_key == 75 && h.request_api_version == 0) {
-            // For DescribeTopicPartitions v0, request header version 2, the body is compact format.
-            // Use a memory stream to parse the body buffer, not fd (so as not to eat bytes for next request).
-            size_t offset = 0;
-            auto read_body_uvarint = [&]() -> uint32_t {
-                uint32_t result = 0;
-                int shift = 0;
-                while (true) {
-                    if (offset >= size - sizeof(h) - h.client_id_length) throw std::runtime_error("Body overflow");
-                    uint8_t byte = (uint8_t)body[offset++];
-                    result |= (uint32_t)(byte & 0x7F) << shift;
-                    if (!(byte & 0x80)) break;
-                    shift += 7;
-                }
-                return result;
-            };
-            auto read_body_compact_string = [&]() -> std::string {
-                uint32_t len = read_body_uvarint();
-                if (len == 0) return "";
-                if (offset + (len-1) > size - sizeof(h) - h.client_id_length) throw std::runtime_error("Body overflow");
-                std::string s(body + offset, body + offset + (len - 1));
-                offset += (len - 1);
-                return s;
-            };
-            auto read_body_uint8 = [&]() -> uint8_t {
-                if (offset >= size - sizeof(h) - h.client_id_length) throw std::runtime_error("Body overflow");
-                return (uint8_t)body[offset++];
-            };
-            auto read_body_int32 = [&]() -> int32_t {
-                if (offset + 4 > size - sizeof(h) - h.client_id_length) throw std::runtime_error("Body overflow");
-                int32_t v;
-                memcpy(&v, body + offset, 4);
-                offset += 4;
-                return v;
-            };
-
-            // topics array
-            uint32_t topics_count = read_body_uvarint();
+            // Parse request body directly from client_fd
+            uint32_t topics_count = read_unsigned_varint(client_fd);
             if (topics_count < 1) throw std::runtime_error("Invalid topics array");
-            std::string topic_name = read_body_compact_string();
-            uint8_t topic_tagged_fields = read_body_uint8();
+            std::string topic_name = read_compact_string(client_fd);
+            uint8_t topic_tagged_fields;
+            read(client_fd, &topic_tagged_fields, 1);
 
-            // skip remaining topics, if any
+            // Skip remaining topics for robustness
             for (uint32_t t = 1; t < topics_count - 1; ++t) {
-                (void)read_body_compact_string();
-                read_body_uint8();
+                (void)read_compact_string(client_fd);
+                read(client_fd, &topic_tagged_fields, 1);
             }
 
-            // response_partition_limit
-            int32_t response_partition_limit = read_body_int32();
+            int32_t response_partition_limit;
+            read(client_fd, &response_partition_limit, 4);
 
-            // cursor: compact string, int32, tagged fields
-            std::string cursor_topic_name = read_body_compact_string();
-            int32_t cursor_partition_index = read_body_int32();
-            uint8_t cursor_tagged_fields = read_body_uint8();
+            std::string cursor_topic_name = read_compact_string(client_fd);
+            int32_t cursor_partition_index;
+            read(client_fd, &cursor_partition_index, 4);
+            uint8_t cursor_tagged_fields;
+            read(client_fd, &cursor_tagged_fields, 1);
 
-            // request tagged_fields
-            uint8_t req_tagged_fields = read_body_uint8();
+            uint8_t req_tagged_fields;
+            read(client_fd, &req_tagged_fields, 1);
 
-            // Build DescribeTopicPartitionsResponse (v0)
+            // Build response
             std::vector<uint8_t> resp;
-            resp.resize(4); // reserve for length
+            resp.resize(4); // Reserve for length
 
-            // correlation_id
-            int32_t corr = h.correlation_id;
+            // Correlation ID
+            uint32_t corr = h.correlation_id;
             corr = htonl(corr);
             resp.insert(resp.end(), (uint8_t*)&corr, (uint8_t*)&corr + 4);
 
-            // topics (compact array, 1 entry)
+            // Topics array (1 entry)
             resp.push_back(0x02); // 1 + 1 = 2
 
-            // topic_name (compact string)
-            uint32_t name_len_uvarint = topic_name.size() + 1;
+            // Topic name
+            uint32_t name_len = topic_name.size();
+            uint32_t name_len_uvarint = name_len + 1;
             resp.push_back((uint8_t)name_len_uvarint);
             resp.insert(resp.end(), topic_name.begin(), topic_name.end());
 
-            // topic_id: 16 bytes of zeros
-            for (int i = 0; i < 16; ++i) resp.push_back(0);
+            // Topic ID (null UUID)
+            write_null_uuid(client_fd); // Directly write to avoid vector overflow
 
-            // error_code (int16)
+            // Error code
             int16_t err = htons(3); // UNKNOWN_TOPIC_OR_PARTITION
             resp.insert(resp.end(), (uint8_t*)&err, (uint8_t*)&err + 2);
 
-            // partitions (empty compact array)
+            // Partitions (empty)
             resp.push_back(0x01); // 0 + 1 = 1
 
-            // topic tagged fields
-            resp.push_back(0x00);
+            // Tagged fields
+            resp.push_back(0x00); // Topic tagged fields
+            resp.push_back(0x00); // Response tagged fields
 
-            // response tagged fields
-            resp.push_back(0x00);
-
-            // Set length at start
-            int32_t msglen = resp.size() - 4;
+            // Set message length
+            int32_t msglen = resp.size() - 4 + 16; // Add 16 bytes for UUID written directly
             int32_t net_msglen = htonl(msglen);
             memcpy(resp.data(), &net_msglen, 4);
 
-            write_all(client_fd, resp.data(), resp.size());
+            // Write response
+            size_t w = 0;
+            while (w < resp.size()) {
+                ssize_t n = write(client_fd, resp.data() + w, resp.size() - w);
+                if (n <= 0) break;
+                w += n;
+            }
 
             delete[] client_id;
             delete[] body;
@@ -207,16 +169,14 @@ void *process_client(void *arg)
 
         // ---- APIVersions ----
         api_versions content;
-        content.size = 3; // 2 entries, size = count+1 (like original code)
+        content.size = 3; // 2 entries, size = count+1
         content.array = new api_version[content.size - 1];
 
-        // API_VERSIONS (18)
         content.array[0].api_key = htons(18);
         content.array[0].min_version = htons(0);
         content.array[0].max_version = htons(4);
         content.array[0].tag_buffer = 0;
 
-        // DESCRIBE_TOPIC_PARTITIONS (75)
         content.array[1].api_key = htons(75);
         content.array[1].min_version = htons(0);
         content.array[1].max_version = htons(0);
